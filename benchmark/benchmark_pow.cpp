@@ -1,285 +1,422 @@
 #include <benchmark/benchmark.h>
+#include <cmath>
+#include <cstdint>
 #include <vector>
 #include <iostream>
-#include "pow_impl.hpp"
-#include "error_util.hpp"
+#include "../src/pow_impl.hpp"
 
-using namespace powerix;
-
-// Jeu de données harmonisé pour les benchmarks
-
-// Valeurs communes pour tous les types entiers
-static const std::vector<int> kCommonIntBases{2, 3, 5, 7, 11};
-static const std::vector<int> kCommonIntExps{0, 1, 2, 3, 5, 10, 15};
-
-// Valeurs communes pour tous les types flottants
-static const std::vector<double> kCommonFloatBases{0.5, 1.1, 1.5, 2.0, 3.14159};
-static const std::vector<double> kCommonFloatExps{0.0, 0.5, 1.0, 2.3, 5.7};
-
-// Données pour entiers signés (mêmes valeurs)
+// Reusable integer and floating point datasets
 static const std::vector<int16_t> kInt16Bases{2, 3, 5, 7, 11};
 static const std::vector<int16_t> kInt16Exps{0, 1, 2, 3, 5, 10, 15};
-
 static const std::vector<int32_t> kInt32Bases{2, 3, 5, 7, 11};
 static const std::vector<int32_t> kInt32Exps{0, 1, 2, 3, 5, 10, 15};
-
 static const std::vector<int64_t> kInt64Bases{2, 3, 5, 7, 11};
 static const std::vector<int64_t> kInt64Exps{0, 1, 2, 3, 5, 10, 15};
-
-// Données pour entiers non signés (mêmes valeurs)
 static const std::vector<uint32_t> kUInt32Bases{2, 3, 5, 7, 11};
 static const std::vector<uint32_t> kUInt32Exps{0, 1, 2, 3, 5, 10, 15};
-
 static const std::vector<uint64_t> kUInt64Bases{2, 3, 5, 7, 11};
 static const std::vector<uint64_t> kUInt64Exps{0, 1, 2, 3, 5, 10, 15};
 
-// Données pour flottants (mêmes valeurs)
-static const std::vector<double> kFloat64Bases{0.5, 1.1, 1.5, 2.0, 3.14159};
-static const std::vector<double> kFloat64Exps{0.0, 0.5, 1.0, 2.3, 5.7};
+static const std::vector<double> kFloat64Bases{0.1, 0.5, 1.3, 2.7, 5.9};
+static const std::vector<double> kFloat64Exps{0.0, 0.5, 1.0, 2.3, 5.7, 10.0, 15.0};
+static const std::vector<float> kFloat32Bases{0.1f, 0.5f, 1.3f, 2.7f, 5.9f};
+static const std::vector<float> kFloat32Exps{0.0f, 0.5f, 1.0f, 2.3f, 5.7f, 10.0f, 15.0f};
 
-static const std::vector<float> kFloat32Bases{0.5f, 1.1f, 1.5f, 2.0f, 3.14159f};
-static const std::vector<float> kFloat32Exps{0.0f, 0.5f, 1.0f, 2.3f, 5.7f};
+// Common datasets for mixed types
+static const std::vector<int32_t> kCommonIntBases{2, 3, 5, 7, 11};
+static const std::vector<int32_t> kCommonIntExps{0, 1, 2, 3, 5, 10, 15};
+static const std::vector<double> kCommonFloatExps{0.0, 0.5, 1.0, 2.3, 5.7, 10.0, 15.0};
 
-// Helper pour boucler sur le jeu de données et éviter le dead-code elimination
-namespace {
-    template <typename Func, typename Bases, typename Exps>
-    void run_dataset(Func&& f, const Bases& bases, const Exps& exps) {
-        for (auto base : bases) {
-            for (auto exp : exps) {
-                benchmark::DoNotOptimize(f(base, exp));
-            }
+// Helper to run a dataset and prevent dead code elimination
+template <typename F, typename BasesT, typename ExpsT>
+inline void run_dataset(F&& func, const BasesT& bases, const ExpsT& exps) {
+    volatile double sink = 0.0;
+    for (auto base : bases) {
+        for (auto exp : exps) {
+            sink += func(base, exp);
         }
     }
+    benchmark::DoNotOptimize(sink);
 }
 
-// 1. Benchmarks pour (Int16, Int16)
+// Error analysis function
+void AnalyzeError() {
+    std::cout << "\n=== Error Analysis (compared to std::pow) ===" << std::endl;
+    
+    double max_abs_err = 0.0;
+    double max_rel_err = 0.0;
+    
+    // Test with various values
+    std::vector<double> test_bases = {0.1, 0.5, 1.0, 2.0, 5.0, 10.0};
+    std::vector<double> test_exps = {0.5, 1.0, 2.0, 2.5};
+    
+    for (double base : test_bases) {
+        for (double exp : test_exps) {
+            double reference = std::pow(base, exp);
+            double test_value = powerix::pow_std(base, exp); // Using std::pow as reference
+            
+            double abs_err = std::abs(reference - test_value);
+            double rel_err = (reference != 0.0) ? abs_err / std::abs(reference) : 0.0;
+            
+            max_abs_err = std::max(max_abs_err, abs_err);
+            max_rel_err = std::max(max_rel_err, rel_err);
+        }
+    }
+    
+    std::cout << "Max absolute error: " << max_abs_err << std::endl;
+    std::cout << "Max relative error: " << max_rel_err << std::endl;
+}
+
+// -------------------------------------------------------------
+// 1. std::pow (reference implementation)
+// -------------------------------------------------------------
+
 static void BM_PowStd_Int16Int16(benchmark::State& state) {
     for (auto _ : state) {
-        run_dataset([](int16_t a, int16_t b) { return pow_std(a, b); }, kInt16Bases, kInt16Exps);
+        run_dataset([](int16_t a, int16_t b) { return std::pow(a, b); }, kInt16Bases, kInt16Exps);
     }
 }
 BENCHMARK(BM_PowStd_Int16Int16);
 
-static void BM_PowFast_Int16Int16(benchmark::State& state) {
-    for (auto _ : state) {
-        run_dataset([](int16_t a, int16_t b) { return pow_fast_int(a, static_cast<unsigned int>(b)); }, kInt16Bases, kInt16Exps);
-    }
-}
-BENCHMARK(BM_PowFast_Int16Int16);
-
-// 2. Benchmarks pour (Int32, Int32)
 static void BM_PowStd_Int32Int32(benchmark::State& state) {
     for (auto _ : state) {
-        run_dataset([](int32_t a, int32_t b) { return pow_std(a, b); }, kInt32Bases, kInt32Exps);
+        run_dataset([](int32_t a, int32_t b) { return std::pow(a, b); }, kInt32Bases, kInt32Exps);
     }
 }
 BENCHMARK(BM_PowStd_Int32Int32);
 
-static void BM_PowFast_Int32Int32(benchmark::State& state) {
-    for (auto _ : state) {
-        run_dataset([](int32_t a, int32_t b) { return pow_fast_int(a, static_cast<unsigned int>(b)); }, kInt32Bases, kInt32Exps);
-    }
-}
-BENCHMARK(BM_PowFast_Int32Int32);
-
-static void BM_PowCached_Int32Int32(benchmark::State& state) {
-    for (auto _ : state) {
-        run_dataset([](int32_t a, int32_t b) { return pow_cached(static_cast<double>(a), b); }, kInt32Bases, kInt32Exps);
-    }
-}
-BENCHMARK(BM_PowCached_Int32Int32);
-
-// 2. Benchmarks pour (Float64, Int32)
-static void BM_PowStd_Float64Int32(benchmark::State& state) {
-    for (auto _ : state) {
-        run_dataset([](double a, int32_t b) { return pow_std(a, b); }, kFloat64Bases, kInt32Exps);
-    }
-}
-BENCHMARK(BM_PowStd_Float64Int32);
-
-static void BM_PowCached_Float64Int32(benchmark::State& state) {
-    for (auto _ : state) {
-        run_dataset([](double a, int32_t b) { return pow_cached(a, b); }, kFloat64Bases, kInt32Exps);
-    }
-}
-BENCHMARK(BM_PowCached_Float64Int32);
-
-// 3. Benchmarks pour (Float64, Float64)
-static void BM_PowStd_Float64Float64(benchmark::State& state) {
-    for (auto _ : state) {
-        run_dataset([](double a, double b) { return pow_std(a, b); }, kFloat64Bases, kFloat64Exps);
-    }
-}
-BENCHMARK(BM_PowStd_Float64Float64);
-
-// 4. Benchmarks pour (Int32, Float64)
-static void BM_PowStd_Int32Float64(benchmark::State& state) {
-    for (auto _ : state) {
-        run_dataset([](int32_t a, double b) { return pow_std(a, b); }, kInt32Bases, kFloat64Exps);
-    }
-}
-BENCHMARK(BM_PowStd_Int32Float64);
-
-// 5. Benchmarks pour (Int64, Int64)
 static void BM_PowStd_Int64Int64(benchmark::State& state) {
     for (auto _ : state) {
-        run_dataset([](int64_t a, int64_t b) { return pow_std(a, b); }, kInt64Bases, kInt64Exps);
+        run_dataset([](int64_t a, int64_t b) { return std::pow(a, b); }, kInt64Bases, kInt64Exps);
     }
 }
 BENCHMARK(BM_PowStd_Int64Int64);
 
-static void BM_PowFast_Int64Int64(benchmark::State& state) {
-    for (auto _ : state) {
-        run_dataset([](int64_t a, int64_t b) { return pow_fast_int(a, static_cast<unsigned int>(b)); }, kInt64Bases, kInt64Exps);
-    }
-}
-BENCHMARK(BM_PowFast_Int64Int64);
-
-// 6. Benchmarks pour (UInt32, UInt32)
 static void BM_PowStd_UInt32UInt32(benchmark::State& state) {
     for (auto _ : state) {
-        run_dataset([](uint32_t a, uint32_t b) { return pow_std(a, b); }, kUInt32Bases, kUInt32Exps);
+        run_dataset([](uint32_t a, uint32_t b) { return std::pow(a, b); }, kUInt32Bases, kUInt32Exps);
     }
 }
 BENCHMARK(BM_PowStd_UInt32UInt32);
 
-static void BM_PowFast_UInt32UInt32(benchmark::State& state) {
-    for (auto _ : state) {
-        run_dataset([](uint32_t a, uint32_t b) { return pow_fast_int(a, b); }, kUInt32Bases, kUInt32Exps);
-    }
-}
-BENCHMARK(BM_PowFast_UInt32UInt32);
-
-// 7. Benchmarks pour (UInt64, UInt64)
 static void BM_PowStd_UInt64UInt64(benchmark::State& state) {
     for (auto _ : state) {
-        run_dataset([](uint64_t a, uint64_t b) { return pow_std(a, b); }, kUInt64Bases, kUInt64Exps);
+        run_dataset([](uint64_t a, uint64_t b) { return std::pow(a, b); }, kUInt64Bases, kUInt64Exps);
     }
 }
 BENCHMARK(BM_PowStd_UInt64UInt64);
 
-static void BM_PowFast_UInt64UInt64(benchmark::State& state) {
-    for (auto _ : state) {
-        run_dataset([](uint64_t a, uint64_t b) { return pow_fast_int(a, b); }, kUInt64Bases, kUInt64Exps);
-    }
-}
-BENCHMARK(BM_PowFast_UInt64UInt64);
-
-// 8. Benchmarks pour (Float32, Float32)
 static void BM_PowStd_Float32Float32(benchmark::State& state) {
     for (auto _ : state) {
-        run_dataset([](float a, float b) { return pow_std(a, b); }, kFloat32Bases, kFloat32Exps);
+        run_dataset([](float a, float b) { return std::pow(a, b); }, kFloat32Bases, kFloat32Exps);
     }
 }
 BENCHMARK(BM_PowStd_Float32Float32);
 
-// 9. Benchmarks pour (Float32, Int32)
+static void BM_PowStd_Float64Float64(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](double a, double b) { return std::pow(a, b); }, kFloat64Bases, kFloat64Exps);
+    }
+}
+BENCHMARK(BM_PowStd_Float64Float64);
+
 static void BM_PowStd_Float32Int32(benchmark::State& state) {
     for (auto _ : state) {
-        run_dataset([](float a, int32_t b) { return pow_std(a, b); }, kFloat32Bases, kInt32Exps);
+        run_dataset([](float a, int32_t b) { return std::pow(a, b); }, kFloat32Bases, kInt32Exps);
     }
 }
 BENCHMARK(BM_PowStd_Float32Int32);
 
-// 10. Benchmarks pour (Float64, Float32) - double avec exposant float
+static void BM_PowStd_Float64Int32(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](double a, int32_t b) { return std::pow(a, b); }, kFloat64Bases, kInt32Exps);
+    }
+}
+BENCHMARK(BM_PowStd_Float64Int32);
+
+static void BM_PowStd_Int32Float64(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](int32_t a, double b) { return std::pow(a, b); }, kInt32Bases, kFloat64Exps);
+    }
+}
+BENCHMARK(BM_PowStd_Int32Float64);
+
 static void BM_PowStd_Float64Float32(benchmark::State& state) {
     for (auto _ : state) {
-        run_dataset([](double a, float b) { return pow_std(a, b); }, kFloat64Bases, kFloat32Exps);
+        run_dataset([](double a, float b) { return std::pow(a, b); }, kFloat64Bases, kFloat32Exps);
     }
 }
 BENCHMARK(BM_PowStd_Float64Float32);
 
-// 11. Benchmarks pour (Float32, Float64) - float avec exposant double
 static void BM_PowStd_Float32Float64(benchmark::State& state) {
     for (auto _ : state) {
-        run_dataset([](float a, double b) { return pow_std(a, b); }, kFloat32Bases, kFloat64Exps);
+        run_dataset([](float a, double b) { return std::pow(a, b); }, kFloat32Bases, kFloat64Exps);
     }
 }
 BENCHMARK(BM_PowStd_Float32Float64);
 
 // -------------------------------------------------------------
-// Analyse d'erreur (exécutée une seule fois avant les benchmarks)
+// 2. pow_fast_int (fast exponentiation - integer only)
 // -------------------------------------------------------------
-static void AnalyzeError() {
-    double max_abs_err = 0.0;
-    double max_rel_err = 0.0;
 
-    for (auto base : kInt16Bases) {
-        for (auto exp : kInt16Exps) {
-            double ref = pow_std(static_cast<double>(base), exp);
-            double val = pow_fast_int(static_cast<double>(base), static_cast<unsigned int>(exp));
-            auto err = compute_error(ref, val);
-            max_abs_err = std::max(max_abs_err, err.abs_err);
-            max_rel_err = std::max(max_rel_err, err.rel_err);
-        }
+static void BM_PowFast_Int16Int16(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](int16_t a, int16_t b) { return powerix::pow_fast_int(a, b); }, kInt16Bases, kInt16Exps);
     }
-
-    for (auto base : kInt32Bases) {
-        for (auto exp : kInt32Exps) {
-            double ref = pow_std(static_cast<double>(base), exp);
-            double val = pow_fast_int(static_cast<double>(base), static_cast<unsigned int>(exp));
-            auto err = compute_error(ref, val);
-            max_abs_err = std::max(max_abs_err, err.abs_err);
-            max_rel_err = std::max(max_rel_err, err.rel_err);
-        }
-    }
-
-    for (auto base : kFloat64Bases) {
-        for (auto exp : kInt32Exps) {
-            double ref = pow_std(base, exp);
-            double val = pow_cached(base, exp);
-            auto err = compute_error(ref, val);
-            max_abs_err = std::max(max_abs_err, err.abs_err);
-            max_rel_err = std::max(max_rel_err, err.rel_err);
-        }
-    }
-
-
-
-    // Test pour les gros entiers
-    for (auto base : kInt64Bases) {
-        for (auto exp : kInt64Exps) {
-            double ref = pow_std(static_cast<double>(base), static_cast<double>(exp));
-            double val = pow_fast_int(static_cast<double>(base), static_cast<unsigned int>(exp));
-            auto err = compute_error(ref, val);
-            max_abs_err = std::max(max_abs_err, err.abs_err);
-            max_rel_err = std::max(max_rel_err, err.rel_err);
-        }
-    }
-
-    // Test pour les entiers non signés
-    for (auto base : kUInt32Bases) {
-        for (auto exp : kUInt32Exps) {
-            double ref = pow_std(static_cast<double>(base), static_cast<double>(exp));
-            double val = pow_fast_int(static_cast<double>(base), static_cast<unsigned int>(exp));
-            auto err = compute_error(ref, val);
-            max_abs_err = std::max(max_abs_err, err.abs_err);
-            max_rel_err = std::max(max_rel_err, err.rel_err);
-        }
-    }
-
-    for (auto base : kUInt64Bases) {
-        for (auto exp : kUInt64Exps) {
-            double ref = pow_std(static_cast<double>(base), static_cast<double>(exp));
-            double val = pow_fast_int(static_cast<double>(base), static_cast<unsigned int>(exp));
-            auto err = compute_error(ref, val);
-            max_abs_err = std::max(max_abs_err, err.abs_err);
-            max_rel_err = std::max(max_rel_err, err.rel_err);
-        }
-    }
-
-    std::cout << "\n=== Analyse d'erreur (par rapport à std::pow) ===\n";
-    std::cout << "Erreur absolue max : " << max_abs_err << "\n";
-    std::cout << "Erreur relative max : " << max_rel_err << "\n\n";
 }
+BENCHMARK(BM_PowFast_Int16Int16);
+
+static void BM_PowFast_Int32Int32(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](int32_t a, int32_t b) { return powerix::pow_fast_int(a, b); }, kInt32Bases, kInt32Exps);
+    }
+}
+BENCHMARK(BM_PowFast_Int32Int32);
+
+static void BM_PowFast_Int64Int64(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](int64_t a, int64_t b) { return powerix::pow_fast_int(a, b); }, kInt64Bases, kInt64Exps);
+    }
+}
+BENCHMARK(BM_PowFast_Int64Int64);
+
+static void BM_PowFast_UInt32UInt32(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](uint32_t a, uint32_t b) { return powerix::pow_fast_int(a, b); }, kUInt32Bases, kUInt32Exps);
+    }
+}
+BENCHMARK(BM_PowFast_UInt32UInt32);
+
+static void BM_PowFast_UInt64UInt64(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](uint64_t a, uint64_t b) { return powerix::pow_fast_int(a, b); }, kUInt64Bases, kUInt64Exps);
+    }
+}
+BENCHMARK(BM_PowFast_UInt64UInt64);
 
 // -------------------------------------------------------------
-// Point d'entrée principal
+// 3. pow_hierarchical (divide & conquer - all types)
 // -------------------------------------------------------------
+
+static void BM_PowHier_Int16Int16(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](int16_t a, int16_t b) { return powerix::pow_hierarchical_int(a, static_cast<unsigned int>(b)); }, kInt16Bases, kInt16Exps);
+    }
+}
+BENCHMARK(BM_PowHier_Int16Int16);
+
+static void BM_PowHier_Int32Int32(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](int32_t a, int32_t b) { return powerix::pow_hierarchical_int(a, static_cast<unsigned int>(b)); }, kInt32Bases, kInt32Exps);
+    }
+}
+BENCHMARK(BM_PowHier_Int32Int32);
+
+static void BM_PowHier_Int64Int64(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](int64_t a, int64_t b) { return powerix::pow_hierarchical_int(a, static_cast<unsigned int>(b)); }, kInt64Bases, kInt64Exps);
+    }
+}
+BENCHMARK(BM_PowHier_Int64Int64);
+
+static void BM_PowHier_UInt32UInt32(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](uint32_t a, uint32_t b) { return powerix::pow_hierarchical_int(a, b); }, kUInt32Bases, kUInt32Exps);
+    }
+}
+BENCHMARK(BM_PowHier_UInt32UInt32);
+
+static void BM_PowHier_UInt64UInt64(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](uint64_t a, uint64_t b) { return powerix::pow_hierarchical_int(a, b); }, kUInt64Bases, kUInt64Exps);
+    }
+}
+BENCHMARK(BM_PowHier_UInt64UInt64);
+
+static void BM_PowHier_Float32Int32(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](float a, int32_t b) { return powerix::pow_hierarchical_float(a, static_cast<unsigned int>(b)); }, kFloat32Bases, kInt32Exps);
+    }
+}
+BENCHMARK(BM_PowHier_Float32Int32);
+
+static void BM_PowHier_Float64Int32(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](double a, int32_t b) { return powerix::pow_hierarchical_float(a, static_cast<unsigned int>(b)); }, kFloat64Bases, kInt32Exps);
+    }
+}
+BENCHMARK(BM_PowHier_Float64Int32);
+
+static void BM_PowHier_Float32Float32(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](float a, float b) { return powerix::pow_hierarchical_float(a, static_cast<unsigned int>(b)); }, kFloat32Bases, kFloat32Exps);
+    }
+}
+BENCHMARK(BM_PowHier_Float32Float32);
+
+static void BM_PowHier_Float64Float64(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](double a, double b) { return powerix::pow_hierarchical_float(a, static_cast<unsigned int>(b)); }, kFloat64Bases, kFloat64Exps);
+    }
+}
+BENCHMARK(BM_PowHier_Float64Float64);
+
+// -------------------------------------------------------------
+// 4. pow_ultra_fast (optimized binary exponentiation - all types)
+// -------------------------------------------------------------
+
+static void BM_PowUltra_Int16Int16(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](int16_t a, int16_t b) { return powerix::pow_ultra_fast(a, static_cast<unsigned int>(b)); }, kInt16Bases, kInt16Exps);
+    }
+}
+BENCHMARK(BM_PowUltra_Int16Int16);
+
+static void BM_PowUltra_Int32Int32(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](int32_t a, int32_t b) { return powerix::pow_ultra_fast(a, static_cast<unsigned int>(b)); }, kInt32Bases, kInt32Exps);
+    }
+}
+BENCHMARK(BM_PowUltra_Int32Int32);
+
+static void BM_PowUltra_Int64Int64(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](int64_t a, int64_t b) { return powerix::pow_ultra_fast(a, static_cast<unsigned int>(b)); }, kInt64Bases, kInt64Exps);
+    }
+}
+BENCHMARK(BM_PowUltra_Int64Int64);
+
+static void BM_PowUltra_UInt32UInt32(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](uint32_t a, uint32_t b) { return powerix::pow_ultra_fast(a, b); }, kUInt32Bases, kUInt32Exps);
+    }
+}
+BENCHMARK(BM_PowUltra_UInt32UInt32);
+
+static void BM_PowUltra_UInt64UInt64(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](uint64_t a, uint64_t b) { return powerix::pow_ultra_fast(a, b); }, kUInt64Bases, kUInt64Exps);
+    }
+}
+BENCHMARK(BM_PowUltra_UInt64UInt64);
+
+static void BM_PowUltra_Float32Int32(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](float a, int32_t b) { return powerix::pow_ultra_fast(a, static_cast<unsigned int>(b)); }, kFloat32Bases, kInt32Exps);
+    }
+}
+BENCHMARK(BM_PowUltra_Float32Int32);
+
+static void BM_PowUltra_Float64Int32(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](double a, int32_t b) { return powerix::pow_ultra_fast(a, static_cast<unsigned int>(b)); }, kFloat64Bases, kInt32Exps);
+    }
+}
+BENCHMARK(BM_PowUltra_Float64Int32);
+
+static void BM_PowUltra_Float32Float32(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](float a, float b) { return powerix::pow_ultra_fast(a, static_cast<unsigned int>(b)); }, kFloat32Bases, kFloat32Exps);
+    }
+}
+BENCHMARK(BM_PowUltra_Float32Float32);
+
+static void BM_PowUltra_Float64Float64(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](double a, double b) { return powerix::pow_ultra_fast(a, static_cast<unsigned int>(b)); }, kFloat64Bases, kFloat64Exps);
+    }
+}
+BENCHMARK(BM_PowUltra_Float64Float64);
+
+// -------------------------------------------------------------
+// 5. pow_cached (memoization with std::map - limited types)
+// -------------------------------------------------------------
+
+static void BM_PowCached_Int32Int32(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](int32_t a, int32_t b) { return powerix::pow_cached(a, b); }, kInt32Bases, kInt32Exps);
+    }
+}
+BENCHMARK(BM_PowCached_Int32Int32);
+
+static void BM_PowCached_Float64Int32(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](double a, int32_t b) { return powerix::pow_cached(a, b); }, kFloat64Bases, kInt32Exps);
+    }
+}
+BENCHMARK(BM_PowCached_Float64Int32);
+
+// -------------------------------------------------------------
+// 6. pow_vec_cached (memoization vector<vector> - all types)
+// -------------------------------------------------------------
+
+static void BM_PowVecCached_Int16Int16(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](int16_t a, int16_t b) { return powerix::pow_vec_cached_int(a, static_cast<unsigned int>(b)); }, kInt16Bases, kInt16Exps);
+    }
+}
+BENCHMARK(BM_PowVecCached_Int16Int16);
+
+static void BM_PowVecCached_Int32Int32(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](int32_t a, int32_t b) { return powerix::pow_vec_cached_int(a, static_cast<unsigned int>(b)); }, kInt32Bases, kInt32Exps);
+    }
+}
+BENCHMARK(BM_PowVecCached_Int32Int32);
+
+static void BM_PowVecCached_Int64Int64(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](int64_t a, int64_t b) { return powerix::pow_vec_cached_int(a, static_cast<unsigned int>(b)); }, kInt64Bases, kInt64Exps);
+    }
+}
+BENCHMARK(BM_PowVecCached_Int64Int64);
+
+static void BM_PowVecCached_UInt32UInt32(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](uint32_t a, uint32_t b) { return powerix::pow_vec_cached_int(a, b); }, kUInt32Bases, kUInt32Exps);
+    }
+}
+BENCHMARK(BM_PowVecCached_UInt32UInt32);
+
+static void BM_PowVecCached_UInt64UInt64(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](uint64_t a, uint64_t b) { return powerix::pow_vec_cached_int(a, b); }, kUInt64Bases, kUInt64Exps);
+    }
+}
+BENCHMARK(BM_PowVecCached_UInt64UInt64);
+
+static void BM_PowVecCached_Float32Int32(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](float a, int32_t b) { return powerix::pow_vec_cached_float(a, static_cast<unsigned int>(b)); }, kFloat32Bases, kInt32Exps);
+    }
+}
+BENCHMARK(BM_PowVecCached_Float32Int32);
+
+static void BM_PowVecCached_Float64Int32(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](double a, int32_t b) { return powerix::pow_vec_cached_float(a, static_cast<unsigned int>(b)); }, kFloat64Bases, kInt32Exps);
+    }
+}
+BENCHMARK(BM_PowVecCached_Float64Int32);
+
+static void BM_PowVecCached_Float32Float32(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](float a, float b) { return powerix::pow_vec_cached_float(a, static_cast<unsigned int>(b)); }, kFloat32Bases, kFloat32Exps);
+    }
+}
+BENCHMARK(BM_PowVecCached_Float32Float32);
+
+static void BM_PowVecCached_Float64Float64(benchmark::State& state) {
+    for (auto _ : state) {
+        run_dataset([](double a, double b) { return powerix::pow_vec_cached_float(a, static_cast<unsigned int>(b)); }, kFloat64Bases, kFloat64Exps);
+    }
+}
+BENCHMARK(BM_PowVecCached_Float64Float64);
+
+// Main function
 int main(int argc, char** argv) {
     AnalyzeError();
     ::benchmark::Initialize(&argc, argv);
-    if (::benchmark::ReportUnrecognizedArguments(argc, argv)) return 1;
     ::benchmark::RunSpecifiedBenchmarks();
     return 0;
 } 
