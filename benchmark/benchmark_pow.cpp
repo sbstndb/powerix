@@ -3,32 +3,18 @@
 #include <cstdint>
 #include <vector>
 #include <iostream>
+#include <tuple>
+#include <type_traits>
 #include "../src/pow_impl.hpp"
 #include "../src/error_util.hpp"
 
-// Reusable integer and floating point datasets
-static const std::vector<int16_t> kInt16Bases{2, 3, 4, 5};
-static const std::vector<int16_t> kInt16Exps{0, 1, 2, 3, 5, 6};
-static const std::vector<int32_t> kInt32Bases{2, 3, 4, 5};
-static const std::vector<int32_t> kInt32Exps{0, 1, 2, 3, 5, 8, 10};
-static const std::vector<int64_t> kInt64Bases{2, 3, 4, 5};
-static const std::vector<int64_t> kInt64Exps{0, 1, 2, 3, 5, 8, 10};
-static const std::vector<uint32_t> kUInt32Bases{2, 3, 4, 5};
-static const std::vector<uint32_t> kUInt32Exps{0, 1, 2, 3, 5, 8, 10};
-static const std::vector<uint64_t> kUInt64Bases{2, 3, 4, 5};
-static const std::vector<uint64_t> kUInt64Exps{0, 1, 2, 3, 5, 8, 10};
+// Base datasets - only integer and double
+static const std::vector<int32_t> kIntBases{2, 3, 4, 5};
+static const std::vector<int32_t> kIntExps{0, 1, 2, 3, 5, 8, 10};
+static const std::vector<double> kDoubleBases{0.1, 0.5, 1.3, 2.7, 5.9};
+static const std::vector<double> kDoubleExps{0.1, 0.5, 1.05, 2.3, 5.7, 5.9};
 
-static const std::vector<double> kFloat64Bases{0.1, 0.5, 1.3, 2.7, 5.9};
-static const std::vector<double> kFloat64Exps{0.1, 0.5, 1.05, 2.3, 5.7, 5.9};
-static const std::vector<float> kFloat32Bases{0.1f, 0.5f, 1.3f, 2.7f, 5.9f};
-static const std::vector<float> kFloat32Exps{0.1f, 0.5f, 1.05f, 2.3f, 5.7f, 5.9f};
-
-// Common datasets for mixed types
-static const std::vector<int32_t> kCommonIntBases{2, 3, 4, 5};
-static const std::vector<int32_t> kCommonIntExps{0, 1, 2, 3, 5, 8, 10};
-static const std::vector<double> kCommonFloatExps{0.1, 0.5, 1.0, 2.3, 5.7, 5.9};
-
-// Helper to run a dataset and prevent dead code elimination
+// Helper to run dataset and prevent dead code elimination
 template <typename F, typename BasesT, typename ExpsT>
 inline void run_dataset(F&& func, const BasesT& bases, const ExpsT& exps) {
     volatile double sink = 0.0;
@@ -38,6 +24,32 @@ inline void run_dataset(F&& func, const BasesT& bases, const ExpsT& exps) {
         }
     }
     benchmark::DoNotOptimize(sink);
+}
+
+// Helper to get bases dataset by type
+template <typename T> 
+const auto& get_bases() {
+    static const auto bases = []() {
+        if constexpr (std::is_integral_v<T>) {
+            return std::vector<T>(kIntBases.begin(), kIntBases.end());
+        } else {
+            return std::vector<T>(kDoubleBases.begin(), kDoubleBases.end());
+        }
+    }();
+    return bases;
+}
+
+// Helper to get exponents dataset by type
+template <typename T> 
+const auto& get_exps() {
+    static const auto exps = []() {
+        if constexpr (std::is_integral_v<T>) {
+            return std::vector<T>(kIntExps.begin(), kIntExps.end());
+        } else {
+            return std::vector<T>(kDoubleExps.begin(), kDoubleExps.end());
+        }
+    }();
+    return exps;
 }
 
 // Helper function to compute error for a specific benchmark
@@ -68,392 +80,147 @@ powerix::Error calculate_error_for_benchmark(Func&& func, const std::vector<Base
     state.counters["MaxRelErr"] = error.rel_err; \
     state.SetItemsProcessed(num_ops);
 
-// -------------------------------------------------------------
-// 1. std::pow (reference implementation)
-// -------------------------------------------------------------
+// Generic benchmark template
+template <auto PowFunc, typename BaseType, typename ExpType>
+void BM_PowGeneric_T(benchmark::State& state) {
+    auto func = [](BaseType a, ExpType b) {
+        return PowFunc(a, b); // Aucune conversion explicite
+    };
+    const auto& bases = get_bases<BaseType>();
+    const auto& exps = get_exps<ExpType>();
 
-static void BM_PowStd_Int16Int16(benchmark::State& state) {
-    auto func = [](int16_t a, int16_t b) { return std::pow(a, b); };
     for (auto _ : state) {
-        run_dataset(func, kInt16Bases, kInt16Exps);
+        run_dataset(func, bases, exps);
     }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kInt16Bases, kInt16Exps);
+    ADD_METRICS_AND_NS_PER_POW(state, func, bases, exps);
 }
-BENCHMARK(BM_PowStd_Int16Int16);
 
-static void BM_PowStd_Int32Int32(benchmark::State& state) {
-    auto func = [](int32_t a, int32_t b) { return std::pow(a, b); };
-    for (auto _ : state) {
-        run_dataset(func, kInt32Bases, kInt32Exps);
+// Specializations for hierarchical power due to its branching logic
+template <typename BaseType, typename ExpType>
+auto hierarchical_pow_wrapper(BaseType a, ExpType b) {
+    if constexpr (std::is_integral_v<BaseType>) {
+        return powerix::pow_hierarchical_int(a, b);
+    } else {
+        return powerix::pow_hierarchical_float(a, b);
     }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kInt32Bases, kInt32Exps);
 }
-BENCHMARK(BM_PowStd_Int32Int32);
 
-static void BM_PowStd_Int64Int64(benchmark::State& state) {
-    auto func = [](int64_t a, int64_t b) { return std::pow(a, b); };
-    for (auto _ : state) {
-        run_dataset(func, kInt64Bases, kInt64Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kInt64Bases, kInt64Exps);
+// Specialization for cached_vector_optional which is templated
+template<typename BaseType, typename ExpType>
+auto cached_vector_optional_wrapper(BaseType a, ExpType b) {
+    return powerix::pow_cached_vector_optional_int<BaseType>(a, b);
 }
-BENCHMARK(BM_PowStd_Int64Int64);
 
-static void BM_PowStd_UInt32UInt32(benchmark::State& state) {
-    auto func = [](uint32_t a, uint32_t b) { return std::pow(a, b); };
-    for (auto _ : state) {
-        run_dataset(func, kUInt32Bases, kUInt32Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kUInt32Bases, kUInt32Exps);
+// Specialization for cached_static_array which is templated
+template<typename BaseType, typename ExpType>
+auto cached_static_array_wrapper(BaseType a, ExpType b) {
+    return powerix::pow_cached_static_array<BaseType>(a, b);
 }
-BENCHMARK(BM_PowStd_UInt32UInt32);
 
-static void BM_PowStd_UInt64UInt64(benchmark::State& state) {
-    auto func = [](uint64_t a, uint64_t b) { return std::pow(a, b); };
-    for (auto _ : state) {
-        run_dataset(func, kUInt64Bases, kUInt64Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kUInt64Bases, kUInt64Exps);
+// Wrapper sans cast pour std::pow
+template<typename BaseType, typename ExpType>
+inline auto std_pow_wrapper(BaseType a, ExpType b) {
+    return std::pow(a, b); // Aucune conversion explicite
 }
-BENCHMARK(BM_PowStd_UInt64UInt64);
 
-static void BM_PowStd_Float32Float32(benchmark::State& state) {
-    auto func = [](float a, float b) { return std::pow(a, b); };
-    for (auto _ : state) {
-        run_dataset(func, kFloat32Bases, kFloat32Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kFloat32Bases, kFloat32Exps);
+// Specialisation pour fast_int wrapper (integer exponent)
+template<typename BaseType, typename ExpType>
+inline BaseType pow_fast_int_wrapper(BaseType a, ExpType b) {
+    return powerix::pow_fast_int<BaseType>(a, b); // conversion implicite éventuelle ok
 }
-BENCHMARK(BM_PowStd_Float32Float32);
 
-static void BM_PowStd_Float64Float64(benchmark::State& state) {
-    auto func = [](double a, double b) { return std::pow(a, b); };
-    for (auto _ : state) {
-        run_dataset(func, kFloat64Bases, kFloat64Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kFloat64Bases, kFloat64Exps);
+// Specialisation pour ultra_fast wrapper (unsigned exponent)
+template<typename BaseType, typename ExpType>
+inline BaseType pow_ultra_fast_wrapper(BaseType a, ExpType b) {
+    return powerix::pow_ultra_fast<BaseType>(a, b); // conversion implicite éventuelle ok
 }
-BENCHMARK(BM_PowStd_Float64Float64);
 
-static void BM_PowStd_Float32Int32(benchmark::State& state) {
-    auto func = [](float a, int32_t b) { return std::pow(a, b); };
-    for (auto _ : state) {
-        run_dataset(func, kFloat32Bases, kInt32Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kFloat32Bases, kInt32Exps);
-}
-BENCHMARK(BM_PowStd_Float32Int32);
+// Register all benchmarks
+// Standard pow (all types)
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, std_pow_wrapper<int16_t,int16_t>, int16_t, int16_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, std_pow_wrapper<uint16_t,uint16_t>, uint16_t, uint16_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, std_pow_wrapper<int32_t,int32_t>, int32_t, int32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, std_pow_wrapper<int64_t,int64_t>, int64_t, int64_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, std_pow_wrapper<uint32_t,uint32_t>, uint32_t, uint32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, std_pow_wrapper<uint64_t,uint64_t>, uint64_t, uint64_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, std_pow_wrapper<float,float>, float, float);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, std_pow_wrapper<double,double>, double, double);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, std_pow_wrapper<float,int32_t>, float, int32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, std_pow_wrapper<double,int32_t>, double, int32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, std_pow_wrapper<int32_t,double>, int32_t, double);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, std_pow_wrapper<double,float>, double, float);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, std_pow_wrapper<float,double>, float, double);
 
-static void BM_PowStd_Float64Int32(benchmark::State& state) {
-    auto func = [](double a, int32_t b) { return std::pow(a, b); };
-    for (auto _ : state) {
-        run_dataset(func, kFloat64Bases, kInt32Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kFloat64Bases, kInt32Exps);
-}
-BENCHMARK(BM_PowStd_Float64Int32);
+// Fast integer exponentiation (integer types only)
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_fast_int_wrapper<int16_t, int16_t>, int16_t, int16_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_fast_int_wrapper<uint16_t, uint16_t>, uint16_t, uint16_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_fast_int_wrapper<int32_t, int32_t>, int32_t, int32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_fast_int_wrapper<int64_t, int64_t>, int64_t, int64_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_fast_int_wrapper<uint32_t, uint32_t>, uint32_t, uint32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_fast_int_wrapper<uint64_t, uint64_t>, uint64_t, uint64_t);
 
-static void BM_PowStd_Int32Float64(benchmark::State& state) {
-    auto func = [](int32_t a, double b) { return std::pow(a, b); };
-    for (auto _ : state) {
-        run_dataset(func, kInt32Bases, kFloat64Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kInt32Bases, kFloat64Exps);
-}
-BENCHMARK(BM_PowStd_Int32Float64);
+// Hierarchical exponentiation (all types)
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, hierarchical_pow_wrapper<int16_t, int16_t>, int16_t, int16_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, hierarchical_pow_wrapper<uint16_t, uint16_t>, uint16_t, uint16_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, hierarchical_pow_wrapper<int32_t, int32_t>, int32_t, int32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, hierarchical_pow_wrapper<int64_t, int64_t>, int64_t, int64_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, hierarchical_pow_wrapper<uint32_t, uint32_t>, uint32_t, uint32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, hierarchical_pow_wrapper<uint64_t, uint64_t>, uint64_t, uint64_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, hierarchical_pow_wrapper<float, int32_t>, float, int32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, hierarchical_pow_wrapper<double, int32_t>, double, int32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, hierarchical_pow_wrapper<float, float>, float, float);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, hierarchical_pow_wrapper<double, double>, double, double);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, hierarchical_pow_wrapper<float, double>, float, double);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, hierarchical_pow_wrapper<double, float>, double, float);
 
-static void BM_PowStd_Float64Float32(benchmark::State& state) {
-    auto func = [](double a, float b) { return std::pow(a, b); };
-    for (auto _ : state) {
-        run_dataset(func, kFloat64Bases, kFloat32Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kFloat64Bases, kFloat32Exps);
-}
-BENCHMARK(BM_PowStd_Float64Float32);
+// Ultra-fast binary exponentiation (all types)
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_ultra_fast_wrapper<int16_t, int16_t>, int16_t, int16_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_ultra_fast_wrapper<uint16_t, uint16_t>, uint16_t, uint16_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_ultra_fast_wrapper<int32_t, int32_t>, int32_t, int32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_ultra_fast_wrapper<int64_t, int64_t>, int64_t, int64_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_ultra_fast_wrapper<uint32_t, uint32_t>, uint32_t, uint32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_ultra_fast_wrapper<uint64_t, uint64_t>, uint64_t, uint64_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_ultra_fast_wrapper<float, int32_t>, float, int32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_ultra_fast_wrapper<double, int32_t>, double, int32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_ultra_fast_wrapper<float, float>, float, float);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_ultra_fast_wrapper<double, double>, double, double);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_ultra_fast_wrapper<float, double>, float, double);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_ultra_fast_wrapper<double, float>, double, float);
 
-static void BM_PowStd_Float32Float64(benchmark::State& state) {
-    auto func = [](float a, double b) { return std::pow(a, b); };
-    for (auto _ : state) {
-        run_dataset(func, kFloat32Bases, kFloat64Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kFloat32Bases, kFloat64Exps);
-}
-BENCHMARK(BM_PowStd_Float32Float64);
+// Cached implementations (integer types only)
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_map, int16_t, int16_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_map, int32_t, int32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_map, int64_t, int64_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_map, uint16_t, uint16_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_map, uint32_t, uint32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_map, uint64_t, uint64_t);
 
-// -------------------------------------------------------------
-// 2. pow_fast_int (fast exponentiation - integer only)
-// -------------------------------------------------------------
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_unordered_nested, int16_t, int16_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_unordered_nested, int32_t, int32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_unordered_nested, int64_t, int64_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_unordered_nested, uint16_t, uint16_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_unordered_nested, uint32_t, uint32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_unordered_nested, uint64_t, uint64_t);
 
-static void BM_PowFast_Int16Int16(benchmark::State& state) {
-    auto func = [](int16_t a, int16_t b) { return powerix::pow_fast_int(a, b); };
-    for (auto _ : state) {
-        run_dataset(func, kInt16Bases, kInt16Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kInt16Bases, kInt16Exps);
-}
-BENCHMARK(BM_PowFast_Int16Int16);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_unordered_pair, int16_t, int16_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_unordered_pair, int32_t, int32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_unordered_pair, int64_t, int64_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_unordered_pair, uint16_t, uint16_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_unordered_pair, uint32_t, uint32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_unordered_pair, uint64_t, uint64_t);
 
-static void BM_PowFast_Int32Int32(benchmark::State& state) {
-    auto func = [](int32_t a, int32_t b) { return powerix::pow_fast_int(a, b); };
-    for (auto _ : state) {
-        run_dataset(func, kInt32Bases, kInt32Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kInt32Bases, kInt32Exps);
-}
-BENCHMARK(BM_PowFast_Int32Int32);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, cached_vector_optional_wrapper<int16_t, int16_t>, int16_t, int16_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, cached_vector_optional_wrapper<int32_t, int32_t>, int32_t, int32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, cached_vector_optional_wrapper<int64_t, int64_t>, int64_t, int64_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, cached_vector_optional_wrapper<uint16_t, uint16_t>, uint16_t, uint16_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, cached_vector_optional_wrapper<uint32_t, uint32_t>, uint32_t, uint32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, cached_vector_optional_wrapper<uint64_t, uint64_t>, uint64_t, uint64_t);
 
-static void BM_PowFast_Int64Int64(benchmark::State& state) {
-    auto func = [](int64_t a, int64_t b) { return powerix::pow_fast_int(a, b); };
-    for (auto _ : state) {
-        run_dataset(func, kInt64Bases, kInt64Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kInt64Bases, kInt64Exps);
-}
-BENCHMARK(BM_PowFast_Int64Int64);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, cached_static_array_wrapper<int16_t, int16_t>, int16_t, int16_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, cached_static_array_wrapper<int32_t, int32_t>, int32_t, int32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, cached_static_array_wrapper<int64_t, int64_t>, int64_t, int64_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, cached_static_array_wrapper<uint16_t, uint16_t>, uint16_t, uint16_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, cached_static_array_wrapper<uint32_t, uint32_t>, uint32_t, uint32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, cached_static_array_wrapper<uint64_t, uint64_t>, uint64_t, uint64_t);
 
-static void BM_PowFast_UInt32UInt32(benchmark::State& state) {
-    auto func = [](uint32_t a, uint32_t b) { return powerix::pow_fast_int(a, b); };
-    for (auto _ : state) {
-        run_dataset(func, kUInt32Bases, kUInt32Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kUInt32Bases, kUInt32Exps);
-}
-BENCHMARK(BM_PowFast_UInt32UInt32);
-
-static void BM_PowFast_UInt64UInt64(benchmark::State& state) {
-    auto func = [](uint64_t a, uint64_t b) { return powerix::pow_fast_int(a, b); };
-    for (auto _ : state) {
-        run_dataset(func, kUInt64Bases, kUInt64Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kUInt64Bases, kUInt64Exps);
-}
-BENCHMARK(BM_PowFast_UInt64UInt64);
-
-// -------------------------------------------------------------
-// 3. pow_hierarchical (divide & conquer - all types)
-// -------------------------------------------------------------
-
-static void BM_PowHier_Int16Int16(benchmark::State& state) {
-    auto func = [](int16_t a, int16_t b) { return powerix::pow_hierarchical_int(a, static_cast<unsigned int>(b)); };
-    for (auto _ : state) {
-        run_dataset(func, kInt16Bases, kInt16Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kInt16Bases, kInt16Exps);
-}
-BENCHMARK(BM_PowHier_Int16Int16);
-
-static void BM_PowHier_Int32Int32(benchmark::State& state) {
-    auto func = [](int32_t a, int32_t b) { return powerix::pow_hierarchical_int(a, static_cast<unsigned int>(b)); };
-    for (auto _ : state) {
-        run_dataset(func, kInt32Bases, kInt32Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kInt32Bases, kInt32Exps);
-}
-BENCHMARK(BM_PowHier_Int32Int32);
-
-static void BM_PowHier_Int64Int64(benchmark::State& state) {
-    auto func = [](int64_t a, int64_t b) { return powerix::pow_hierarchical_int(a, static_cast<unsigned int>(b)); };
-    for (auto _ : state) {
-        run_dataset(func, kInt64Bases, kInt64Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kInt64Bases, kInt64Exps);
-}
-BENCHMARK(BM_PowHier_Int64Int64);
-
-static void BM_PowHier_UInt32UInt32(benchmark::State& state) {
-    auto func = [](uint32_t a, uint32_t b) { return powerix::pow_hierarchical_int(a, b); };
-    for (auto _ : state) {
-        run_dataset(func, kUInt32Bases, kUInt32Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kUInt32Bases, kUInt32Exps);
-}
-BENCHMARK(BM_PowHier_UInt32UInt32);
-
-static void BM_PowHier_UInt64UInt64(benchmark::State& state) {
-    auto func = [](uint64_t a, uint64_t b) { return powerix::pow_hierarchical_int(a, b); };
-    for (auto _ : state) {
-        run_dataset(func, kUInt64Bases, kUInt64Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kUInt64Bases, kUInt64Exps);
-}
-BENCHMARK(BM_PowHier_UInt64UInt64);
-
-static void BM_PowHier_Float32Int32(benchmark::State& state) {
-    auto func = [](float a, int32_t b) { return powerix::pow_hierarchical_float(a, static_cast<unsigned int>(b)); };
-    for (auto _ : state) {
-        run_dataset(func, kFloat32Bases, kInt32Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kFloat32Bases, kInt32Exps);
-}
-BENCHMARK(BM_PowHier_Float32Int32);
-
-static void BM_PowHier_Float64Int32(benchmark::State& state) {
-    auto func = [](double a, int32_t b) { return powerix::pow_hierarchical_float(a, static_cast<unsigned int>(b)); };
-    for (auto _ : state) {
-        run_dataset(func, kFloat64Bases, kInt32Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kFloat64Bases, kInt32Exps);
-}
-BENCHMARK(BM_PowHier_Float64Int32);
-
-static void BM_PowHier_Float32Float32(benchmark::State& state) {
-    auto func = [](float a, float b) { return powerix::pow_hierarchical_float(a, static_cast<unsigned int>(b)); };
-    for (auto _ : state) {
-        run_dataset(func, kFloat32Bases, kFloat32Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kFloat32Bases, kFloat32Exps);
-}
-BENCHMARK(BM_PowHier_Float32Float32);
-
-static void BM_PowHier_Float64Float64(benchmark::State& state) {
-    auto func = [](double a, double b) { return powerix::pow_hierarchical_float(a, static_cast<unsigned int>(b)); };
-    for (auto _ : state) {
-        run_dataset(func, kFloat64Bases, kFloat64Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kFloat64Bases, kFloat64Exps);
-}
-BENCHMARK(BM_PowHier_Float64Float64);
-
-// -------------------------------------------------------------
-// 4. pow_ultra_fast (optimized binary exponentiation - all types)
-// -------------------------------------------------------------
-
-static void BM_PowUltra_Int16Int16(benchmark::State& state) {
-    auto func = [](int16_t a, int16_t b) { return powerix::pow_ultra_fast(a, static_cast<unsigned int>(b)); };
-    for (auto _ : state) {
-        run_dataset(func, kInt16Bases, kInt16Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kInt16Bases, kInt16Exps);
-}
-BENCHMARK(BM_PowUltra_Int16Int16);
-
-static void BM_PowUltra_Int32Int32(benchmark::State& state) {
-    auto func = [](int32_t a, int32_t b) { return powerix::pow_ultra_fast(a, static_cast<unsigned int>(b)); };
-    for (auto _ : state) {
-        run_dataset(func, kInt32Bases, kInt32Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kInt32Bases, kInt32Exps);
-}
-BENCHMARK(BM_PowUltra_Int32Int32);
-
-static void BM_PowUltra_Int64Int64(benchmark::State& state) {
-    auto func = [](int64_t a, int64_t b) { return powerix::pow_ultra_fast(a, static_cast<unsigned int>(b)); };
-    for (auto _ : state) {
-        run_dataset(func, kInt64Bases, kInt64Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kInt64Bases, kInt64Exps);
-}
-BENCHMARK(BM_PowUltra_Int64Int64);
-
-static void BM_PowUltra_UInt32UInt32(benchmark::State& state) {
-    auto func = [](uint32_t a, uint32_t b) { return powerix::pow_ultra_fast(a, b); };
-    for (auto _ : state) {
-        run_dataset(func, kUInt32Bases, kUInt32Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kUInt32Bases, kUInt32Exps);
-}
-BENCHMARK(BM_PowUltra_UInt32UInt32);
-
-static void BM_PowUltra_UInt64UInt64(benchmark::State& state) {
-    auto func = [](uint64_t a, uint64_t b) { return powerix::pow_ultra_fast(a, b); };
-    for (auto _ : state) {
-        run_dataset(func, kUInt64Bases, kUInt64Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kUInt64Bases, kUInt64Exps);
-}
-BENCHMARK(BM_PowUltra_UInt64UInt64);
-
-static void BM_PowUltra_Float32Int32(benchmark::State& state) {
-    auto func = [](float a, int32_t b) { return powerix::pow_ultra_fast(a, static_cast<unsigned int>(b)); };
-    for (auto _ : state) {
-        run_dataset(func, kFloat32Bases, kInt32Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kFloat32Bases, kInt32Exps);
-}
-BENCHMARK(BM_PowUltra_Float32Int32);
-
-static void BM_PowUltra_Float64Int32(benchmark::State& state) {
-    auto func = [](double a, int32_t b) { return powerix::pow_ultra_fast(a, static_cast<unsigned int>(b)); };
-    for (auto _ : state) {
-        run_dataset(func, kFloat64Bases, kInt32Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kFloat64Bases, kInt32Exps);
-}
-BENCHMARK(BM_PowUltra_Float64Int32);
-
-static void BM_PowUltra_Float32Float32(benchmark::State& state) {
-    auto func = [](float a, float b) { return powerix::pow_ultra_fast(a, static_cast<unsigned int>(b)); };
-    for (auto _ : state) {
-        run_dataset(func, kFloat32Bases, kFloat32Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kFloat32Bases, kFloat32Exps);
-}
-BENCHMARK(BM_PowUltra_Float32Float32);
-
-static void BM_PowUltra_Float64Float64(benchmark::State& state) {
-    auto func = [](double a, double b) { return powerix::pow_ultra_fast(a, static_cast<unsigned int>(b)); };
-    for (auto _ : state) {
-        run_dataset(func, kFloat64Bases, kFloat64Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kFloat64Bases, kFloat64Exps);
-}
-BENCHMARK(BM_PowUltra_Float64Float64);
-
-// -------------------------------------------------------------
-// 5. pow_cached (memoization with std::map - limited types)
-// -------------------------------------------------------------
-
-static void BM_PowCached_Int16Int16(benchmark::State& state) {
-    auto func = [](int16_t a, int16_t b) { return powerix::pow_cached(a, b); };
-    for (auto _ : state) {
-        run_dataset(func, kInt16Bases, kInt16Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kInt16Bases, kInt16Exps);
-}
-BENCHMARK(BM_PowCached_Int16Int16);
-
-// -------------------------------------------------------------
-// 5.b pow_cached_unordered_nested (memoization with nested unordered_maps)
-// -------------------------------------------------------------
-
-static void BM_PowCachedUnorderedNested_Int16Int16(benchmark::State& state) {
-    auto func = [](int16_t a, int16_t b) { return powerix::pow_cached_unordered_nested(a, b); };
-    for (auto _ : state) {
-        run_dataset(func, kInt16Bases, kInt16Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kInt16Bases, kInt16Exps);
-}
-BENCHMARK(BM_PowCachedUnorderedNested_Int16Int16);
-
-// -------------------------------------------------------------
-// 5.c pow_cached_unordered_pair (memoization with unordered_map and pair key)
-// -------------------------------------------------------------
-
-static void BM_PowCachedUnorderedPair_Int16Int16(benchmark::State& state) {
-    auto func = [](int16_t a, int16_t b) { return powerix::pow_cached_unordered_pair(a, b); };
-    for (auto _ : state) {
-        run_dataset(func, kInt16Bases, kInt16Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kInt16Bases, kInt16Exps);
-}
-BENCHMARK(BM_PowCachedUnorderedPair_Int16Int16);
-
-// -------------------------------------------------------------
-// 6. pow_vec_cached (memoization vector<vector> - all types)
-// -------------------------------------------------------------
-
-static void BM_PowVecCached_Int16Int16(benchmark::State& state) {
-    auto func = [](int16_t a, int16_t b) { return powerix::pow_vec_cached_int(a, b); };
-    for (auto _ : state) {
-        run_dataset(func, kInt16Bases, kInt16Exps);
-    }
-    ADD_METRICS_AND_NS_PER_POW(state, func, kInt16Bases, kInt16Exps);
-}
-BENCHMARK(BM_PowVecCached_Int16Int16);
-
-// Main function
-int main(int argc, char** argv) {
-    ::benchmark::Initialize(&argc, argv);
-    ::benchmark::RunSpecifiedBenchmarks();
-    return 0;
-} 
+BENCHMARK_MAIN(); 

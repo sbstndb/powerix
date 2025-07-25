@@ -3,16 +3,30 @@
 #include <cstdint>
 #include <vector>
 #include <iostream>
+#include <tuple>
+#include <type_traits>
 #include "../src/pow_impl.hpp"
 #include "../src/error_util.hpp"
 
 // Datasets for fractional exponent benchmarks
-static const std::vector<int32_t> kIntBasesFrac{1, 2, 3, 5, 8, 13, 21, 34, 55, 89};
-static const std::vector<float> kFloat32BasesFrac{0.1f, 0.5f, 1.0f, 2.0f, 3.0f, 5.0f, 8.0f, 13.0f, 21.0f, 34.0f};
-static const std::vector<double> kFloat64BasesFrac{0.1, 0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 13.0, 21.0, 34.0};
+static const std::vector<float> kFloat32BasesFrac{0.1f, 0.3f, 0.5f, 0.8f, 1.0f, 2.0f, 3.0f, 5.0f, 8.0f, 13.0f};
+static const std::vector<double> kFloat64BasesFrac{0.1, 0.3, 0.5, 0.8, 1.0, 2.0, 3.0, 5.0, 8.0, 13.0};
 
 // Fixed exponent: 2/3
 static constexpr double kFracExp = 2.0/3.0;
+
+// Helper to get bases dataset by type for fractional benchmarks
+template <typename T> 
+const auto& get_bases_frac() {
+    static const auto bases = []() {
+        if constexpr (std::is_same_v<T, float>) {
+            return std::vector<T>(kFloat32BasesFrac.begin(), kFloat32BasesFrac.end());
+        } else {
+            return std::vector<T>(kFloat64BasesFrac.begin(), kFloat64BasesFrac.end());
+        }
+    }();
+    return bases;
+}
 
 // Helper to run dataset and prevent dead code elimination
 template <typename F, typename BasesT>
@@ -45,198 +59,108 @@ powerix::Error calculate_error_for_benchmark_frac(Func&& func, const std::vector
 
 #define ADD_METRICS_AND_NS_PER_POW_FRAC(state, func, bases) \
     auto error = calculate_error_for_benchmark_frac(func, bases); \
-    state.counters["MaxAbsErr"] = error.abs_err; \
     state.counters["MaxRelErr"] = error.rel_err;
 
-// -------------------------------------------------------------
-// 1. std::pow (reference)
-// -------------------------------------------------------------
+// Generic benchmark template
+template <auto PowFunc, typename BaseType, typename ExpType>
+void BM_PowGeneric_Frac_T(benchmark::State& state) {
+    auto func = [](BaseType base, double exp) {
+        return PowFunc(base, static_cast<ExpType>(exp));
+    };
+    const auto& bases = get_bases_frac<BaseType>();
 
-static void BM_PowStd_Int32_FracExp(benchmark::State& state) {
-    auto func = [](int32_t base, [[maybe_unused]] double e) { return std::pow(static_cast<double>(base), kFracExp); };
     for (auto _ : state) {
-        run_dataset_frac(func, kIntBasesFrac);
+        run_dataset_frac(func, bases);
     }
-    ADD_METRICS_AND_NS_PER_POW_FRAC(state, func, kIntBasesFrac);
+    ADD_METRICS_AND_NS_PER_POW_FRAC(state, func, bases);
 }
-BENCHMARK(BM_PowStd_Int32_FracExp);
 
-static void BM_PowStd_Float32_FracExp(benchmark::State& state) {
-    auto func = [](float base, [[maybe_unused]] double e) { return std::pow(base, static_cast<float>(kFracExp)); };
-    for (auto _ : state) {
-        run_dataset_frac(func, kFloat32BasesFrac);
+// Wrapper functions for different pow implementations
+template<typename BaseType, typename ExpType>
+inline auto std_pow_wrapper(BaseType base, ExpType exp) {
+    return std::pow(base, exp);
+}
+
+template<typename BaseType, typename ExpType>
+inline auto c_raw_pow_wrapper(BaseType base, ExpType exp) {
+    if constexpr (std::is_same_v<BaseType, float>) {
+        return powerix::pow_c_raw_float(base, exp);
+    } else {
+        return powerix::pow_c_raw(base, exp);
     }
-    ADD_METRICS_AND_NS_PER_POW_FRAC(state, func, kFloat32BasesFrac);
 }
-BENCHMARK(BM_PowStd_Float32_FracExp);
 
-static void BM_PowStd_Float64_FracExp(benchmark::State& state) {
-    auto func = [](double base, [[maybe_unused]] double e) { return std::pow(base, kFracExp); };
-    for (auto _ : state) {
-        run_dataset_frac(func, kFloat64BasesFrac);
+template<typename BaseType, typename ExpType>
+inline auto cbrt_pow_wrapper(BaseType base, [[maybe_unused]] ExpType exp) {
+    if constexpr (std::is_same_v<BaseType, float>) {
+        return powerix::pow_2_3_cbrt_float(base);
+    } else {
+        return powerix::pow_2_3_cbrt(base);
     }
-    ADD_METRICS_AND_NS_PER_POW_FRAC(state, func, kFloat64BasesFrac);
 }
-BENCHMARK(BM_PowStd_Float64_FracExp);
 
-// -------------------------------------------------------------
-// 2. C raw pow function
-// -------------------------------------------------------------
-
-static void BM_PowCRaw_Int32_FracExp(benchmark::State& state) {
-    auto func = [](int32_t base, [[maybe_unused]] double e) { return powerix::pow_c_raw(base, kFracExp); };
-    for (auto _ : state) {
-        run_dataset_frac(func, kIntBasesFrac);
+template<typename BaseType, typename ExpType>
+inline auto exp_log_pow_wrapper(BaseType base, [[maybe_unused]] ExpType exp) {
+    if constexpr (std::is_same_v<BaseType, float>) {
+        return powerix::pow_2_3_exp_log_float(base);
+    } else {
+        return powerix::pow_2_3_exp_log(base);
     }
-    ADD_METRICS_AND_NS_PER_POW_FRAC(state, func, kIntBasesFrac);
 }
-BENCHMARK(BM_PowCRaw_Int32_FracExp);
 
-static void BM_PowCRaw_Float32_FracExp(benchmark::State& state) {
-    auto func = [](float base, [[maybe_unused]] double e) { return powerix::pow_c_raw_float(base, static_cast<float>(kFracExp)); };
-    for (auto _ : state) {
-        run_dataset_frac(func, kFloat32BasesFrac);
+template<typename BaseType, typename ExpType>
+inline auto eigen_pow_wrapper(BaseType base, [[maybe_unused]] ExpType exp) {
+    if constexpr (std::is_same_v<BaseType, float>) {
+        return powerix::pow_2_3_eigen_float(base);
+    } else {
+        return powerix::pow_2_3_eigen(base);
     }
-    ADD_METRICS_AND_NS_PER_POW_FRAC(state, func, kFloat32BasesFrac);
 }
-BENCHMARK(BM_PowCRaw_Float32_FracExp);
 
-static void BM_PowCRaw_Float64_FracExp(benchmark::State& state) {
-    auto func = [](double base, [[maybe_unused]] double e) { return powerix::pow_c_raw(base, kFracExp); };
-    for (auto _ : state) {
-        run_dataset_frac(func, kFloat64BasesFrac);
+template<typename BaseType, typename ExpType>
+inline auto series_pow_wrapper(BaseType base, [[maybe_unused]] ExpType exp) {
+    if constexpr (std::is_same_v<BaseType, float>) {
+        return powerix::pow_2_3_series_float(base);
+    } else {
+        return powerix::pow_2_3_series(base);
     }
-    ADD_METRICS_AND_NS_PER_POW_FRAC(state, func, kFloat64BasesFrac);
 }
-BENCHMARK(BM_PowCRaw_Float64_FracExp);
 
-// -------------------------------------------------------------
-// 3. cbrt version (cube root)
-// -------------------------------------------------------------
+// Register all benchmarks
+// Standard pow (reference)
+BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, std_pow_wrapper<float, float>, float, float);
+BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, std_pow_wrapper<float, double>, float, double);
+BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, std_pow_wrapper<double, float>, double, float);
+BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, std_pow_wrapper<double, double>, double, double);
 
-static void BM_PowCbrt_Int32_FracExp(benchmark::State& state) {
-    auto func = [](int32_t base, [[maybe_unused]] double e) { return powerix::pow_2_3_cbrt(base); };
-    for (auto _ : state) {
-        run_dataset_frac(func, kIntBasesFrac);
-    }
-    ADD_METRICS_AND_NS_PER_POW_FRAC(state, func, kIntBasesFrac);
-}
-BENCHMARK(BM_PowCbrt_Int32_FracExp);
+// C raw pow function
+BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, c_raw_pow_wrapper<float, float>, float, float);
+BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, c_raw_pow_wrapper<float, double>, float, double);
+BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, c_raw_pow_wrapper<double, float>, double, float);
+BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, c_raw_pow_wrapper<double, double>, double, double);
 
-static void BM_PowCbrt_Float32_FracExp(benchmark::State& state) {
-    auto func = [](float base, [[maybe_unused]] double e) { return powerix::pow_2_3_cbrt_float(base); };
-    for (auto _ : state) {
-        run_dataset_frac(func, kFloat32BasesFrac);
-    }
-    ADD_METRICS_AND_NS_PER_POW_FRAC(state, func, kFloat32BasesFrac);
-}
-BENCHMARK(BM_PowCbrt_Float32_FracExp);
+// Cube root version
+BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, cbrt_pow_wrapper<float, float>, float, float);
+BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, cbrt_pow_wrapper<float, double>, float, double);
+BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, cbrt_pow_wrapper<double, float>, double, float);
+BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, cbrt_pow_wrapper<double, double>, double, double);
 
-static void BM_PowCbrt_Float64_FracExp(benchmark::State& state) {
-    auto func = [](double base, [[maybe_unused]] double e) { return powerix::pow_2_3_cbrt(base); };
-    for (auto _ : state) {
-        run_dataset_frac(func, kFloat64BasesFrac);
-    }
-    ADD_METRICS_AND_NS_PER_POW_FRAC(state, func, kFloat64BasesFrac);
-}
-BENCHMARK(BM_PowCbrt_Float64_FracExp);
+// Exponential and logarithmic version
+BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, exp_log_pow_wrapper<float, float>, float, float);
+BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, exp_log_pow_wrapper<float, double>, float, double);
+BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, exp_log_pow_wrapper<double, float>, double, float);
+BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, exp_log_pow_wrapper<double, double>, double, double);
 
-// -------------------------------------------------------------
-// 4. exp(y*log(x)) version
-// -------------------------------------------------------------
+// Eigen version
+BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, eigen_pow_wrapper<float, float>, float, float);
+BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, eigen_pow_wrapper<float, double>, float, double);
+BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, eigen_pow_wrapper<double, float>, double, float);
+BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, eigen_pow_wrapper<double, double>, double, double);
 
-static void BM_PowExpLog_Int32_FracExp(benchmark::State& state) {
-    auto func = [](int32_t base, [[maybe_unused]] double e) { return powerix::pow_2_3_exp_log(base); };
-    for (auto _ : state) {
-        run_dataset_frac(func, kIntBasesFrac);
-    }
-    ADD_METRICS_AND_NS_PER_POW_FRAC(state, func, kIntBasesFrac);
-}
-BENCHMARK(BM_PowExpLog_Int32_FracExp);
+// Binomial series version
+BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, series_pow_wrapper<float, float>, float, float);
+BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, series_pow_wrapper<float, double>, float, double);
+BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, series_pow_wrapper<double, float>, double, float);
+BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, series_pow_wrapper<double, double>, double, double);
 
-static void BM_PowExpLog_Float32_FracExp(benchmark::State& state) {
-    auto func = [](float base, [[maybe_unused]] double e) { return powerix::pow_2_3_exp_log_float(base); };
-    for (auto _ : state) {
-        run_dataset_frac(func, kFloat32BasesFrac);
-    }
-    ADD_METRICS_AND_NS_PER_POW_FRAC(state, func, kFloat32BasesFrac);
-}
-BENCHMARK(BM_PowExpLog_Float32_FracExp);
-
-static void BM_PowExpLog_Float64_FracExp(benchmark::State& state) {
-    auto func = [](double base, [[maybe_unused]] double e) { return powerix::pow_2_3_exp_log(base); };
-    for (auto _ : state) {
-        run_dataset_frac(func, kFloat64BasesFrac);
-    }
-    ADD_METRICS_AND_NS_PER_POW_FRAC(state, func, kFloat64BasesFrac);
-}
-BENCHMARK(BM_PowExpLog_Float64_FracExp);
-
-// -------------------------------------------------------------
-// 5. Eigen version
-// -------------------------------------------------------------
-
-static void BM_PowEigen_Int32_FracExp(benchmark::State& state) {
-    auto func = [](int32_t base, [[maybe_unused]] double e) { return powerix::pow_2_3_eigen(base); };
-    for (auto _ : state) {
-        run_dataset_frac(func, kIntBasesFrac);
-    }
-    ADD_METRICS_AND_NS_PER_POW_FRAC(state, func, kIntBasesFrac);
-}
-BENCHMARK(BM_PowEigen_Int32_FracExp);
-
-static void BM_PowEigen_Float32_FracExp(benchmark::State& state) {
-    auto func = [](float base, [[maybe_unused]] double e) { return powerix::pow_2_3_eigen_float(base); };
-    for (auto _ : state) {
-        run_dataset_frac(func, kFloat32BasesFrac);
-    }
-    ADD_METRICS_AND_NS_PER_POW_FRAC(state, func, kFloat32BasesFrac);
-}
-BENCHMARK(BM_PowEigen_Float32_FracExp);
-
-static void BM_PowEigen_Float64_FracExp(benchmark::State& state) {
-    auto func = [](double base, [[maybe_unused]] double e) { return powerix::pow_2_3_eigen(base); };
-    for (auto _ : state) {
-        run_dataset_frac(func, kFloat64BasesFrac);
-    }
-    ADD_METRICS_AND_NS_PER_POW_FRAC(state, func, kFloat64BasesFrac);
-}
-BENCHMARK(BM_PowEigen_Float64_FracExp);
-
-// -------------------------------------------------------------
-// 6. Binomial series version
-// -------------------------------------------------------------
-
-static void BM_PowSeries_Int32_FracExp(benchmark::State& state) {
-    auto func = [](int32_t base, [[maybe_unused]] double e) { return powerix::pow_2_3_series(base); };
-    for (auto _ : state) {
-        run_dataset_frac(func, kIntBasesFrac);
-    }
-    ADD_METRICS_AND_NS_PER_POW_FRAC(state, func, kIntBasesFrac);
-}
-BENCHMARK(BM_PowSeries_Int32_FracExp);
-
-static void BM_PowSeries_Float32_FracExp(benchmark::State& state) {
-    auto func = [](float base, [[maybe_unused]] double e) { return powerix::pow_2_3_series_float(base); };
-    for (auto _ : state) {
-        run_dataset_frac(func, kFloat32BasesFrac);
-    }
-    ADD_METRICS_AND_NS_PER_POW_FRAC(state, func, kFloat32BasesFrac);
-}
-BENCHMARK(BM_PowSeries_Float32_FracExp);
-
-static void BM_PowSeries_Float64_FracExp(benchmark::State& state) {
-    auto func = [](double base, [[maybe_unused]] double e) { return powerix::pow_2_3_series(base); };
-    for (auto _ : state) {
-        run_dataset_frac(func, kFloat64BasesFrac);
-    }
-    ADD_METRICS_AND_NS_PER_POW_FRAC(state, func, kFloat64BasesFrac);
-}
-BENCHMARK(BM_PowSeries_Float64_FracExp);
-
-// Main function
-int main(int argc, char** argv) {
-    ::benchmark::Initialize(&argc, argv);
-    ::benchmark::RunSpecifiedBenchmarks();
-    return 0;
-} 
+BENCHMARK_MAIN(); 
