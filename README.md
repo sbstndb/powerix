@@ -1,50 +1,50 @@
-# Powerix – Benchmark de différentes implémentations de `pow`
+# Powerix – Benchmark of different `pow` implementations
 
-## Objectif
+## Objective
 
-Ce projet a pour but d'explorer l'impact de différentes stratégies d'implémentation de la fonction puissance (`pow`) en C++. Nous souhaitons :
+This project aims to explore the impact of different implementation strategies for the power function (`pow`) in C++. We want to:
 
-1. Comparer les performances de plusieurs implémentations :
-   - `std::pow` (référence)
-   - Exponentiation rapide pour exposants entiers (`pow_fast_int`)
-   - Version mémoïsée pour appels répétitifs (`pow_cached`)
-2. Quantifier l'erreur (absolue et relative) introduite par les implémentations alternatives par rapport à `std::pow`.
-3. Évaluer les performances sur différents types de données :
-   - Entiers signés : `int16_t`, `int32_t`, `int64_t`
-   - Entiers non signés : `uint32_t`, `uint64_t`
-   - Flottants : `float` (Float32), `double` (Float64)
-   - Cas mixtes : entiers/flottants, Float32/Float64
+1. Compare the performance of several implementations:
+   - `std::pow` (reference)
+   - Fast exponentiation for integer exponents (`pow_fast_int`)
+   - Memoized version for repeated calls (`pow_cached`)
+2. Quantify the error (absolute and relative) introduced by alternative implementations compared to `std::pow`.
+3. Evaluate performance on different data types:
+   - Signed integers: `int16_t`, `int32_t`, `int64_t`
+   - Unsigned integers: `uint32_t`, `uint64_t`
+   - Floating point: `float` (Float32), `double` (Float64)
+   - Mixed cases: integers/floating point, Float32/Float64
 
-Les benchmarks sont réalisés avec la bibliothèque [Google Benchmark](https://github.com/google/benchmark).
+Benchmarks are performed using the [Google Benchmark](https://github.com/google/benchmark) library.
 
 ---
 
-## Arborescence
+## Project Structure
 
 ```
 .
 ├── benchmark/
-│   └── benchmark_pow.cpp   # Points d'entrée des benchmarks
+│   └── benchmark_pow.cpp   # Benchmark entry points
 ├── src/
-│   ├── pow_impl.hpp        # Implémentations des différentes variantes
-│   └── error_util.hpp      # Outils de mesure d'erreur
-├── CMakeLists.txt          # Configuration du projet / dépendances
-└── README.md               # Ce fichier
+│   ├── pow_impl.hpp        # Different implementation variants
+│   └── error_util.hpp      # Error measurement tools
+├── CMakeLists.txt          # Project configuration / dependencies
+└── README.md               # This file
 ```
 
 ---
 
-## Prérequis
+## Prerequisites
 
-- Un compilateur C++17 (GCC 9+, Clang 10+, MSVC 2019+)
+- A C++17 compiler (GCC 9+, Clang 10+, MSVC 2019+)
 - CMake ≥ 3.14
-- `git` pour le téléchargement automatique des dépendances
+- `git` for automatic dependency download
 
 ---
 
 ## Compilation
 
-Le projet génère trois binaires avec différents niveaux d'optimisation :
+The project generates three binaries with different optimization levels:
 
 ```bash
 mkdir -p build && cd build
@@ -52,41 +52,41 @@ cmake .. -DCMAKE_BUILD_TYPE=Release
 cmake --build . -j$(nproc)
 ```
 
-Cela génère :
-- `benchmark_pow_standard` : Optimisations `-O2`
-- `benchmark_pow_aggressive` : Optimisations `-O3 -mtune=native -march=native -mavx2`
-- `benchmark_pow_fast` : Optimisations ultra-agressives `-Ofast -mtune=native -march=native -mavx2 -ffast-math -funroll-loops`
+This generates:
+- `benchmark_pow_standard` : `-O2` optimizations
+- `benchmark_pow_aggressive` : `-O3 -mtune=native -march=native -mavx2` optimizations
+- `benchmark_pow_fast` : Ultra-aggressive optimizations `-Ofast -mtune=native -march=native -mavx2 -ffast-math -funroll-loops`
 
 ---
 
-## Exécution des benchmarks
+## Running Benchmarks
 
-Toujours dans `build/` :
+Always in `build/`:
 
 ```bash
-# Version standard
+# Standard version
 ./benchmark_pow_standard
 
-# Version avec optimisations agressives
+# Version with aggressive optimizations
 ./benchmark_pow_aggressive
 
-# Version ultra-agressive (recommandée)
+# Ultra-aggressive version (recommended)
 ./benchmark_pow_fast
 ```
 
-Vous obtiendrez :
+You will get:
 
-1. Un résumé de l'erreur maximale (absolue et relative) entre les implémentations alternatives et `std::pow`.
-2. Les tableaux de performance Google Benchmark pour chaque type de données.
+1. A summary of the maximum error (absolute and relative) between alternative implementations and `std::pow`.
+2. Google Benchmark performance tables for each data type.
 
 ---
 
-## Résultats de performance
+## Performance Results
 
-### Résultats avec optimisations ultra-agressives (`-Ofast`)
+### Results with ultra-aggressive optimizations (`-Ofast`)
 
-| Benchmark | Temps | Type | Gain vs std::pow |
-|-----------|-------|------|------------------|
+| Benchmark | Time | Type | Gain vs std::pow |
+|-----------|------|------|------------------|
 | `BM_PowStd_Int16Int16` | 314 ns | `(int16_t, int16_t)` | - |
 | `BM_PowFast_Int16Int16` | **75.9 ns** | `(int16_t, int16_t)` | **4.1x** |
 | `BM_PowStd_Int32Int32` | 305 ns | `(int32_t, int32_t)` | - |
@@ -100,34 +100,34 @@ Vous obtiendrez :
 | `BM_PowStd_Float32Float32` | **99.3 ns** | `(float, float)` | - |
 | `BM_PowStd_Float64Float64` | **192 ns** | `(double, double)` | - |
 
-### Observations clés
+### Key Observations
 
-1. **Exponentiation rapide** : 4.0-4.5x plus rapide pour tous les types entiers
-2. **Entiers non signés** : Légèrement plus performants que les signés
-3. **Flottants** : `float` (99.3 ns) plus rapide que `double` (192 ns)
-4. **Précision** : Erreur relative maximale de 3.9e-16 (excellente)
+1. **Fast exponentiation**: 4.0-4.5x faster for all integer types
+2. **Unsigned integers**: Slightly more performant than signed ones
+3. **Floating point**: `float` (99.3 ns) faster than `double` (192 ns)
+4. **Precision**: Maximum relative error of 3.9e-16 (excellent)
 
-### Recommandations d'usage
+### Usage Recommendations
 
-- **Pour les entiers non signés** : `UInt32` avec exponentiation rapide (62.9 ns)
-- **Pour les entiers signés** : `Int32` avec exponentiation rapide (69.3 ns)
-- **Pour les flottants** : `Float32` pour la vitesse (99.3 ns), `Float64` pour la précision (192 ns)
-- **Pour les gros entiers** : `Int64`/`UInt64` avec exponentiation rapide (~70 ns)
-
----
-
-## Personnalisation
-
-Vous pouvez modifier les jeux de données testés dans `benchmark/benchmark_pow.cpp` :
-- `kInt16Bases`, `kInt16Exps` : Pour les entiers 16-bit
-- `kInt32Bases`, `kInt32Exps` : Pour les entiers 32-bit
-- `kFloat32Bases`, `kFloat32Exps` : Pour les flottants 32-bit
-- `kFloat64Bases`, `kFloat64Exps` : Pour les flottants 64-bit
-
-Pour profiler plus finement ou ajouter de nouvelles implémentations, créez simplement de nouvelles fonctions dans `src/pow_impl.hpp` puis déclarez des benchmarks supplémentaires.
+- **For unsigned integers**: `UInt32` with fast exponentiation (62.9 ns)
+- **For signed integers**: `Int32` with fast exponentiation (69.3 ns)
+- **For floating point**: `Float32` for speed (99.3 ns), `Float64` for precision (192 ns)
+- **For large integers**: `Int64`/`UInt64` with fast exponentiation (~70 ns)
 
 ---
 
-## Licence
+## Customization
 
-Ce projet est distribué sous licence MIT. 
+You can modify the test datasets in `benchmark/benchmark_pow.cpp`:
+- `kInt16Bases`, `kInt16Exps` : For 16-bit integers
+- `kInt32Bases`, `kInt32Exps` : For 32-bit integers
+- `kFloat32Bases`, `kFloat32Exps` : For 32-bit floating point
+- `kFloat64Bases`, `kFloat64Exps` : For 64-bit floating point
+
+To profile more finely or add new implementations, simply create new functions in `src/pow_impl.hpp` then declare additional benchmarks.
+
+---
+
+## License
+
+This project is distributed under the MIT license. 
