@@ -2,13 +2,13 @@
 
 #include <cmath>
 #include <vector>
-#include <mutex>
 #include <map>
 #include <type_traits>
 #include <functional>
 #include <optional>
 #include <limits>
 #include <Eigen/Core>
+#include <unordered_map>
 
 namespace powerix {
 
@@ -52,25 +52,66 @@ inline T pow_fast_int(T base, int exp) {
 inline double pow_cached(double base, int exp) {
     using Key = std::pair<double, int>;
     static std::map<Key, double> cache;
-    static std::mutex mtx;
-    
-    {
-        std::scoped_lock lock(mtx);
-        auto it = cache.find({base, exp});
-        if (it != cache.end()) {
-            return it->second;
-        }
+    auto it = cache.find({base, exp});
+    if (it != cache.end()) {
+        return it->second;
     }
     
     // Calculate outside critical section to avoid blocking
     double result = std::pow(base, exp);
-    
-    {
-        std::scoped_lock lock(mtx);
-        cache[{base, exp}] = result;
-    }
+    cache[{base, exp}] = result;
     return result;
 }
+
+// 3.b  Memoized pow with std::unordered_map imbriqués
+// Cette variante utilise une unordered_map externe indexée par la base et,
+// pour chaque base, une unordered_map interne indexée par l'exposant.
+// On conserve un mutex global pour la sécurité thread-safe, mais l'accès
+// amorti O(1) sur la clé améliore les performances par rapport au std::map
+// dont la complexité est logarithmique.
+inline double pow_cached_unordered_nested(double base, int exp) {
+    using InnerMap = std::unordered_map<int, double>;
+    static std::unordered_map<double, InnerMap> cache;
+
+    auto outer = cache.find(base);
+    if (outer != cache.end()) {
+        auto inner = outer->second.find(exp);
+        if (inner != outer->second.end()) {
+            return inner->second;
+        }
+    }
+
+    // Calcul
+    double result = std::pow(base, exp);
+    cache[base][exp] = result;
+    return result;
+}
+
+// 3.c  Memoized pow avec unordered_map et clé pair<double,int>
+// On fournit un hash dédié pour pair afin d'obtenir un cache plat O(1).
+struct PairHash {
+    std::size_t operator()(const std::pair<double, int>& p) const noexcept {
+        std::size_t h1 = std::hash<double>{}(p.first);
+        std::size_t h2 = std::hash<int>{}(p.second);
+        return h1 ^ (h2 + 0x9e3779b9 + (h1 << 6) + (h1 >> 2)); // hash combiné
+    }
+};
+
+inline double pow_cached_unordered_pair(double base, int exp) {
+    using Key = std::pair<double, int>;
+    static std::unordered_map<Key, double, PairHash> cache;
+
+    auto key = Key{base, exp};
+    auto it = cache.find(key);
+    if (it != cache.end()) {
+        return it->second;
+    }
+
+    double result = std::pow(base, exp);
+    cache[key] = result;
+    return result;
+}
+
 
 // 4. Hierarchical recursive exponentiation (divide & conquer)
 // Reduces comparisons/iterations using tail-optimizable recursion
@@ -142,30 +183,21 @@ inline IntType pow_vec_cached_int(IntType base, unsigned int exp) {
         return pow_hierarchical_int(base, exp);
     }
     static std::vector<std::vector<std::optional<IntType>>> cache; // cache[base][exp]
-    static std::mutex mtx;
-
     const size_t b = static_cast<size_t>(base);
 
-    {
-        std::scoped_lock lock(mtx);
-        if (b >= cache.size()) {
-            cache.resize(b + 1);
-        }
-        if (exp >= cache[b].size()) {
-            cache[b].resize(exp + 1);
-        }
-        if (cache[b][exp].has_value()) {
-            return *cache[b][exp];
-        }
+    if (b >= cache.size()) {
+        cache.resize(b + 1);
     }
-
+    if (exp >= cache[b].size()) {
+        cache[b].resize(exp + 1);
+    }
+    if (cache[b][exp].has_value()) {
+        return *cache[b][exp];
+    }
+    
     // Calculate outside critical section to avoid blocking
     IntType result = pow_hierarchical_int(base, exp);
-
-    {
-        std::scoped_lock lock(mtx);
-        cache[b][exp] = result;
-    }
+    cache[b][exp] = result;
     return result;
 }
 
@@ -175,31 +207,22 @@ inline IntType pow_vec_cached_int(IntType base, unsigned int exp) {
 template <typename FloatType>
 inline FloatType pow_vec_cached_float(FloatType base, unsigned int exp) {
     static std::vector<std::vector<std::optional<FloatType>>> cache; // cache[base][exp]
-    static std::mutex mtx;
-
     // For floating points, use a discretized key
     const size_t b = static_cast<size_t>(std::abs(base) * 1000); // Discretization to 3 decimals
 
-    {
-        std::scoped_lock lock(mtx);
-        if (b >= cache.size()) {
-            cache.resize(b + 1);
-        }
-        if (exp >= cache[b].size()) {
-            cache[b].resize(exp + 1);
-        }
-        if (cache[b][exp].has_value()) {
-            return *cache[b][exp];
-        }
+    if (b >= cache.size()) {
+        cache.resize(b + 1);
     }
-
+    if (exp >= cache[b].size()) {
+        cache[b].resize(exp + 1);
+    }
+    if (cache[b][exp].has_value()) {
+        return *cache[b][exp];
+    }
+    
     // Calculate outside critical section
     FloatType result = pow_hierarchical_float(base, exp);
-
-    {
-        std::scoped_lock lock(mtx);
-        cache[b][exp] = result;
-    }
+    cache[b][exp] = result;
     return result;
 }
 
