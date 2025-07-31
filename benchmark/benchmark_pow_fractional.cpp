@@ -83,47 +83,22 @@ inline auto std_pow_wrapper(BaseType base, ExpType exp) {
 
 template<typename BaseType, typename ExpType>
 inline auto c_raw_pow_wrapper(BaseType base, ExpType exp) {
-    if constexpr (std::is_same_v<BaseType, float>) {
-        return powerix::pow_c_raw_float(base, exp);
-    } else {
-        return powerix::pow_c_raw(base, exp);
-    }
+    return powerix::pow_c_raw(base, exp);
 }
 
 template<typename BaseType, typename ExpType>
 inline auto cbrt_pow_wrapper(BaseType base, [[maybe_unused]] ExpType exp) {
-    if constexpr (std::is_same_v<BaseType, float>) {
-        return powerix::pow_2_3_cbrt_float(base);
-    } else {
-        return powerix::pow_2_3_cbrt(base);
-    }
+    return powerix::pow_2_3_cbrt(base);
 }
 
 template<typename BaseType, typename ExpType>
 inline auto exp_log_pow_wrapper(BaseType base, [[maybe_unused]] ExpType exp) {
-    if constexpr (std::is_same_v<BaseType, float>) {
-        return powerix::pow_2_3_exp_log_float(base);
-    } else {
-        return powerix::pow_2_3_exp_log(base);
-    }
-}
-
-template<typename BaseType, typename ExpType>
-inline auto eigen_pow_wrapper(BaseType base, [[maybe_unused]] ExpType exp) {
-    if constexpr (std::is_same_v<BaseType, float>) {
-        return powerix::pow_2_3_eigen_float(base);
-    } else {
-        return powerix::pow_2_3_eigen(base);
-    }
+    return powerix::pow_2_3_exp_log(base);
 }
 
 template<typename BaseType, typename ExpType>
 inline auto series_pow_wrapper(BaseType base, [[maybe_unused]] ExpType exp) {
-    if constexpr (std::is_same_v<BaseType, float>) {
-        return powerix::pow_2_3_series_float(base);
-    } else {
-        return powerix::pow_2_3_series(base);
-    }
+    return powerix::pow_2_3_series(base);
 }
 
 // Register all benchmarks
@@ -150,12 +125,6 @@ BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, exp_log_pow_wrapper<float, float>, floa
 BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, exp_log_pow_wrapper<float, double>, float, double);
 BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, exp_log_pow_wrapper<double, float>, double, float);
 BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, exp_log_pow_wrapper<double, double>, double, double);
-
-// Eigen version
-BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, eigen_pow_wrapper<float, float>, float, float);
-BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, eigen_pow_wrapper<float, double>, float, double);
-BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, eigen_pow_wrapper<double, float>, double, float);
-BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, eigen_pow_wrapper<double, double>, double, double);
 
 // Binomial series version
 BENCHMARK_TEMPLATE(BM_PowGeneric_Frac_T, series_pow_wrapper<float, float>, float, float);

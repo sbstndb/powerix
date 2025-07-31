@@ -98,23 +98,19 @@ void BM_PowGeneric_T(benchmark::State& state) {
 // Specializations for hierarchical power due to its branching logic
 template <typename BaseType, typename ExpType>
 auto hierarchical_pow_wrapper(BaseType a, ExpType b) {
-    if constexpr (std::is_integral_v<BaseType>) {
-        return powerix::pow_hierarchical_int(a, b);
-    } else {
-        return powerix::pow_hierarchical_float(a, b);
-    }
+    return powerix::pow_hierarchical(a, b);
 }
 
 // Specialization for cached_vector_optional which is templated
 template<typename BaseType, typename ExpType>
 auto cached_vector_optional_wrapper(BaseType a, ExpType b) {
-    return powerix::pow_cached_vector_optional_int<BaseType>(a, b);
+    return powerix::pow_cached_vector_optional(a, b);
 }
 
 // Specialization for cached_static_array which is templated
 template<typename BaseType, typename ExpType>
 auto cached_static_array_wrapper(BaseType a, ExpType b) {
-    return powerix::pow_cached_static_array<BaseType>(a, b);
+    return powerix::pow_cached_static_array<BaseType, ExpType>(a, b);
 }
 
 // Wrapper sans cast pour std::pow
@@ -123,16 +119,34 @@ inline auto std_pow_wrapper(BaseType a, ExpType b) {
     return std::pow(a, b); // Aucune conversion explicite
 }
 
-// Specialisation pour fast_int wrapper (integer exponent)
+// Specialisation pour binary wrapper (integer exponent)
 template<typename BaseType, typename ExpType>
-inline BaseType pow_fast_int_wrapper(BaseType a, ExpType b) {
-    return powerix::pow_fast_int<BaseType>(a, b); // conversion implicite éventuelle ok
+inline BaseType pow_binary_wrapper(BaseType a, ExpType b) {
+    return powerix::pow_binary<BaseType, ExpType>(a, b);
 }
 
 // Specialisation pour ultra_fast wrapper (unsigned exponent)
 template<typename BaseType, typename ExpType>
 inline BaseType pow_ultra_fast_wrapper(BaseType a, ExpType b) {
-    return powerix::pow_ultra_fast<BaseType>(a, b); // conversion implicite éventuelle ok
+    return powerix::pow_ultra_fast<BaseType, ExpType>(a, b);
+}
+
+// Wrapper pour pow_cached_map (template avec deux types entiers)
+template<typename BaseType, typename ExpType>
+inline auto pow_cached_map_wrapper(BaseType a, ExpType b) {
+    return powerix::pow_cached_map<BaseType, ExpType>(a, b);
+}
+
+// Wrapper pour pow_cached_unordered_nested (template avec deux types entiers)
+template<typename BaseType, typename ExpType>
+inline auto pow_cached_unordered_nested_wrapper(BaseType a, ExpType b) {
+    return powerix::pow_cached_unordered_nested<BaseType, ExpType>(a, b);
+}
+
+// Wrapper pour pow_cached_unordered_pair (template avec deux types entiers)
+template<typename BaseType, typename ExpType>
+inline auto pow_cached_unordered_pair_wrapper(BaseType a, ExpType b) {
+    return powerix::pow_cached_unordered_pair<BaseType, ExpType>(a, b);
 }
 
 // Register all benchmarks
@@ -151,63 +165,51 @@ BENCHMARK_TEMPLATE(BM_PowGeneric_T, std_pow_wrapper<int32_t,double>, int32_t, do
 BENCHMARK_TEMPLATE(BM_PowGeneric_T, std_pow_wrapper<double,float>, double, float);
 BENCHMARK_TEMPLATE(BM_PowGeneric_T, std_pow_wrapper<float,double>, float, double);
 
-// Fast integer exponentiation (integer types only)
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_fast_int_wrapper<int16_t, int16_t>, int16_t, int16_t);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_fast_int_wrapper<uint16_t, uint16_t>, uint16_t, uint16_t);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_fast_int_wrapper<int32_t, int32_t>, int32_t, int32_t);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_fast_int_wrapper<int64_t, int64_t>, int64_t, int64_t);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_fast_int_wrapper<uint32_t, uint32_t>, uint32_t, uint32_t);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_fast_int_wrapper<uint64_t, uint64_t>, uint64_t, uint64_t);
+// Binary exponentiation (integer types only)
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_binary_wrapper<int16_t, int16_t>, int16_t, int16_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_binary_wrapper<uint16_t, uint16_t>, uint16_t, uint16_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_binary_wrapper<int32_t, int32_t>, int32_t, int32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_binary_wrapper<int64_t, int64_t>, int64_t, int64_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_binary_wrapper<uint32_t, uint32_t>, uint32_t, uint32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_binary_wrapper<uint64_t, uint64_t>, uint64_t, uint64_t);
 
-// Hierarchical exponentiation (all types)
+// Hierarchical exponentiation (integer types only)
 BENCHMARK_TEMPLATE(BM_PowGeneric_T, hierarchical_pow_wrapper<int16_t, int16_t>, int16_t, int16_t);
 BENCHMARK_TEMPLATE(BM_PowGeneric_T, hierarchical_pow_wrapper<uint16_t, uint16_t>, uint16_t, uint16_t);
 BENCHMARK_TEMPLATE(BM_PowGeneric_T, hierarchical_pow_wrapper<int32_t, int32_t>, int32_t, int32_t);
 BENCHMARK_TEMPLATE(BM_PowGeneric_T, hierarchical_pow_wrapper<int64_t, int64_t>, int64_t, int64_t);
 BENCHMARK_TEMPLATE(BM_PowGeneric_T, hierarchical_pow_wrapper<uint32_t, uint32_t>, uint32_t, uint32_t);
 BENCHMARK_TEMPLATE(BM_PowGeneric_T, hierarchical_pow_wrapper<uint64_t, uint64_t>, uint64_t, uint64_t);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, hierarchical_pow_wrapper<float, int32_t>, float, int32_t);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, hierarchical_pow_wrapper<double, int32_t>, double, int32_t);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, hierarchical_pow_wrapper<float, float>, float, float);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, hierarchical_pow_wrapper<double, double>, double, double);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, hierarchical_pow_wrapper<float, double>, float, double);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, hierarchical_pow_wrapper<double, float>, double, float);
 
-// Ultra-fast binary exponentiation (all types)
+// Ultra-fast binary exponentiation (integer types only)
 BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_ultra_fast_wrapper<int16_t, int16_t>, int16_t, int16_t);
 BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_ultra_fast_wrapper<uint16_t, uint16_t>, uint16_t, uint16_t);
 BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_ultra_fast_wrapper<int32_t, int32_t>, int32_t, int32_t);
 BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_ultra_fast_wrapper<int64_t, int64_t>, int64_t, int64_t);
 BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_ultra_fast_wrapper<uint32_t, uint32_t>, uint32_t, uint32_t);
 BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_ultra_fast_wrapper<uint64_t, uint64_t>, uint64_t, uint64_t);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_ultra_fast_wrapper<float, int32_t>, float, int32_t);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_ultra_fast_wrapper<double, int32_t>, double, int32_t);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_ultra_fast_wrapper<float, float>, float, float);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_ultra_fast_wrapper<double, double>, double, double);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_ultra_fast_wrapper<float, double>, float, double);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_ultra_fast_wrapper<double, float>, double, float);
 
 // Cached implementations (integer types only)
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_map, int16_t, int16_t);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_map, int32_t, int32_t);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_map, int64_t, int64_t);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_map, uint16_t, uint16_t);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_map, uint32_t, uint32_t);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_map, uint64_t, uint64_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_cached_map_wrapper<int16_t, int16_t>, int16_t, int16_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_cached_map_wrapper<int32_t, int32_t>, int32_t, int32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_cached_map_wrapper<int64_t, int64_t>, int64_t, int64_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_cached_map_wrapper<uint16_t, uint16_t>, uint16_t, uint16_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_cached_map_wrapper<uint32_t, uint32_t>, uint32_t, uint32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_cached_map_wrapper<uint64_t, uint64_t>, uint64_t, uint64_t);
 
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_unordered_nested, int16_t, int16_t);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_unordered_nested, int32_t, int32_t);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_unordered_nested, int64_t, int64_t);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_unordered_nested, uint16_t, uint16_t);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_unordered_nested, uint32_t, uint32_t);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_unordered_nested, uint64_t, uint64_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_cached_unordered_nested_wrapper<int16_t, int16_t>, int16_t, int16_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_cached_unordered_nested_wrapper<int32_t, int32_t>, int32_t, int32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_cached_unordered_nested_wrapper<int64_t, int64_t>, int64_t, int64_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_cached_unordered_nested_wrapper<uint16_t, uint16_t>, uint16_t, uint16_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_cached_unordered_nested_wrapper<uint32_t, uint32_t>, uint32_t, uint32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_cached_unordered_nested_wrapper<uint64_t, uint64_t>, uint64_t, uint64_t);
 
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_unordered_pair, int16_t, int16_t);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_unordered_pair, int32_t, int32_t);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_unordered_pair, int64_t, int64_t);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_unordered_pair, uint16_t, uint16_t);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_unordered_pair, uint32_t, uint32_t);
-BENCHMARK_TEMPLATE(BM_PowGeneric_T, powerix::pow_cached_unordered_pair, uint64_t, uint64_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_cached_unordered_pair_wrapper<int16_t, int16_t>, int16_t, int16_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_cached_unordered_pair_wrapper<int32_t, int32_t>, int32_t, int32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_cached_unordered_pair_wrapper<int64_t, int64_t>, int64_t, int64_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_cached_unordered_pair_wrapper<uint16_t, uint16_t>, uint16_t, uint16_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_cached_unordered_pair_wrapper<uint32_t, uint32_t>, uint32_t, uint32_t);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_cached_unordered_pair_wrapper<uint64_t, uint64_t>, uint64_t, uint64_t);
 
 BENCHMARK_TEMPLATE(BM_PowGeneric_T, cached_vector_optional_wrapper<int16_t, int16_t>, int16_t, int16_t);
 BENCHMARK_TEMPLATE(BM_PowGeneric_T, cached_vector_optional_wrapper<int32_t, int32_t>, int32_t, int32_t);

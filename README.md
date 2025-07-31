@@ -52,7 +52,7 @@ That's it – the tables above are usually all you need. For deeper numbers run 
 ## Extended Benchmark Numbers
 
 ### 1. Integer-Exponent Workloads (ns)
-| Base^Exponent | Compiler | `std::pow` | `pow_hierarchical` | `pow_fast_int` | `pow_ultra_fast` |
+| Base^Exponent | Compiler | `std::pow` | `pow_hierarchical` | `pow_binary` | `pow_ultra_fast` |
 |---------------|----------|-----------:|-------------------:|---------------:|-----------------:|
 | Int16^Int16   | GCC   | 238 | **41** | 55 | 56 |
 | Int16^Int16   | Clang | 238 | **40** | 55 | 56 |
