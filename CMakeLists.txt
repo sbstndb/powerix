@@ -26,6 +26,7 @@ function(create_benchmark_executable name optimization_flags)
     add_executable(${name} 
         benchmark/benchmark_pow.cpp
     )
+    target_compile_features(${name} PRIVATE cxx_std_20)
     target_compile_options(${name} PRIVATE ${optimization_flags})
     target_link_libraries(${name} PRIVATE benchmark::benchmark Eigen3::Eigen)
 endfunction()
@@ -35,6 +36,7 @@ function(create_fractional_benchmark_executable name optimization_flags)
     add_executable(${name} 
         benchmark/benchmark_pow_fractional.cpp
     )
+    target_compile_features(${name} PRIVATE cxx_std_20)
     target_compile_options(${name} PRIVATE ${optimization_flags})
     target_link_libraries(${name} PRIVATE benchmark::benchmark Eigen3::Eigen)
 endfunction()
@@ -47,6 +49,7 @@ function(create_benchmark_executable_with_compiler name optimization_flags compi
     set_target_properties(${name} PROPERTIES
         CXX_COMPILER ${compiler}
     )
+    target_compile_features(${name} PRIVATE cxx_std_20)
     target_compile_options(${name} PRIVATE ${optimization_flags})
     target_link_libraries(${name} PRIVATE benchmark::benchmark Eigen3::Eigen)
 endfunction()
@@ -59,6 +62,7 @@ function(create_fractional_benchmark_executable_with_compiler name optimization_
     set_target_properties(${name} PROPERTIES
         CXX_COMPILER ${compiler}
     )
+    target_compile_features(${name} PRIVATE cxx_std_20)
     target_compile_options(${name} PRIVATE ${optimization_flags})
     target_link_libraries(${name} PRIVATE benchmark::benchmark Eigen3::Eigen)
 endfunction()

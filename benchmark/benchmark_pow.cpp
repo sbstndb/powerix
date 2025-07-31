@@ -43,7 +43,7 @@ const auto& get_bases() {
 template <typename T> 
 const auto& get_exps() {
     static const auto exps = []() {
-        if constexpr (std::is_unsigned_v<T>) {
+        if constexpr (std::is_integral_v<T>) {
             return std::vector<T>(kIntExps.begin(), kIntExps.end());
         } else {
             return std::vector<T>(kDoubleExps.begin(), kDoubleExps.end());
@@ -149,6 +149,12 @@ inline auto pow_cached_unordered_pair_wrapper(BaseType a, ExpType b) {
     return powerix::pow_cached_unordered_pair<BaseType, ExpType>(a, b);
 }
 
+// Wrapper pour pow_c_raw
+template<typename BaseType, typename ExpType>
+inline auto pow_c_raw_wrapper(BaseType a, ExpType b) {
+    return powerix::pow_c_raw(a, b);
+}
+
 // Register all benchmarks
 // Standard pow (all types)
 BENCHMARK_TEMPLATE(BM_PowGeneric_T, std_pow_wrapper<uint16_t,uint16_t>, uint16_t, uint16_t);
@@ -160,6 +166,10 @@ BENCHMARK_TEMPLATE(BM_PowGeneric_T, std_pow_wrapper<float,uint32_t>, float, uint
 BENCHMARK_TEMPLATE(BM_PowGeneric_T, std_pow_wrapper<double,uint32_t>, double, uint32_t);
 BENCHMARK_TEMPLATE(BM_PowGeneric_T, std_pow_wrapper<double,float>, double, float);
 BENCHMARK_TEMPLATE(BM_PowGeneric_T, std_pow_wrapper<float,double>, float, double);
+
+// C raw pow function wrapper
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_c_raw_wrapper<float,float>, float, float);
+BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_c_raw_wrapper<double,double>, double, double);
 
 // Binary exponentiation (integer types only)
 BENCHMARK_TEMPLATE(BM_PowGeneric_T, pow_binary_wrapper<uint16_t, uint16_t>, uint16_t, uint16_t);

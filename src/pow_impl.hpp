@@ -11,6 +11,19 @@
 
 namespace powerix {
 
+// Concepts for type constraints
+template <typename T>
+concept IsArithmetic = std::is_arithmetic_v<T>;
+
+template <typename BaseType, typename ExpType>
+concept IsArithmeticUnsigned = IsArithmetic<BaseType> && std::is_unsigned_v<ExpType>;
+
+template <typename BaseType, typename ExpType>
+concept IsIntegralUnsigned = std::is_integral_v<BaseType> && std::is_unsigned_v<ExpType>;
+
+template <typename BaseType, typename ExpType>
+concept IsArithmeticFloating = IsArithmetic<BaseType> && std::is_floating_point_v<ExpType>;
+
 extern "C" {
     double pow(double x, double y);
     float powf(float x, float y);
@@ -24,7 +37,7 @@ extern "C" {
 
 // Binary exponentiation algorithm (exponentiation rapide)
 template <typename BaseType, typename ExpType>
-inline BaseType pow_binary(BaseType base, ExpType exp) requires std::is_arithmetic_v<BaseType> && std::is_unsigned_v<ExpType> {
+inline BaseType pow_binary(BaseType base, ExpType exp) requires IsArithmeticUnsigned<BaseType, ExpType> {
     if (exp == 0) return static_cast<BaseType>(1);
     if (exp == 1) return base;
     
@@ -44,7 +57,7 @@ inline BaseType pow_binary(BaseType base, ExpType exp) requires std::is_arithmet
 
 // Hierarchical recursive exponentiation (divide & conquer) - works for both int and float
 template <typename BaseType, typename ExpType>
-inline BaseType pow_hierarchical(BaseType base, ExpType exp) requires std::is_arithmetic_v<BaseType> && std::is_unsigned_v<ExpType> {
+inline BaseType pow_hierarchical(BaseType base, ExpType exp) requires IsArithmeticUnsigned<BaseType, ExpType> {
     if (exp == 0) return static_cast<BaseType>(1);
     if (exp == 1) return base;
     BaseType half = pow_hierarchical(static_cast<BaseType>(base * base), static_cast<ExpType>(exp >> 1));
@@ -53,7 +66,7 @@ inline BaseType pow_hierarchical(BaseType base, ExpType exp) requires std::is_ar
 
 // Ultra-optimized binary exponentiation with loop unrolling
 template <typename BaseType, typename ExpType>
-inline BaseType pow_ultra_fast(BaseType base, ExpType exp) requires std::is_arithmetic_v<BaseType> && std::is_unsigned_v<ExpType> {
+inline BaseType pow_ultra_fast(BaseType base, ExpType exp) requires IsArithmeticUnsigned<BaseType, ExpType> {
     if (exp == 0) [[likely]] return static_cast<BaseType>(1);
     
     BaseType result = static_cast<BaseType>(1);
@@ -86,7 +99,7 @@ inline BaseType pow_ultra_fast(BaseType base, ExpType exp) requires std::is_arit
 
 // Memoization with std::map
 template <typename BaseType, typename ExpType, typename ResultType = std::conditional_t<std::is_floating_point_v<BaseType> || std::is_floating_point_v<ExpType>, std::common_type_t<BaseType, ExpType>, BaseType>>
-inline ResultType pow_cached_map(BaseType base, ExpType exp) requires std::is_integral_v<BaseType> && std::is_unsigned_v<ExpType> {
+inline ResultType pow_cached_map(BaseType base, ExpType exp) requires IsIntegralUnsigned<BaseType, ExpType> {
     using Key = std::pair<BaseType, ExpType>;
     static std::map<Key, ResultType> cache;
     auto it = cache.find({base, exp});
@@ -101,7 +114,7 @@ inline ResultType pow_cached_map(BaseType base, ExpType exp) requires std::is_in
 
 // Memoization with nested std::unordered_maps
 template <typename BaseType, typename ExpType, typename ResultType = std::conditional_t<std::is_floating_point_v<BaseType> || std::is_floating_point_v<ExpType>, std::common_type_t<BaseType, ExpType>, BaseType>>
-inline ResultType pow_cached_unordered_nested(BaseType base, ExpType exp) requires std::is_integral_v<BaseType> && std::is_unsigned_v<ExpType> {
+inline ResultType pow_cached_unordered_nested(BaseType base, ExpType exp) requires IsIntegralUnsigned<BaseType, ExpType> {
     using InnerMap = std::unordered_map<ExpType, ResultType>;
     static std::unordered_map<BaseType, InnerMap> cache;
 
@@ -130,7 +143,7 @@ struct PairHash {
 
 // Memoization with unordered_map and pair key
 template <typename BaseType, typename ExpType, typename ResultType = std::conditional_t<std::is_floating_point_v<BaseType> || std::is_floating_point_v<ExpType>, std::common_type_t<BaseType, ExpType>, BaseType>>
-inline ResultType pow_cached_unordered_pair(BaseType base, ExpType exp) requires std::is_integral_v<BaseType> && std::is_unsigned_v<ExpType> {
+inline ResultType pow_cached_unordered_pair(BaseType base, ExpType exp) requires IsIntegralUnsigned<BaseType, ExpType> {
     using Key = std::pair<BaseType, ExpType>;
     static std::unordered_map<Key, ResultType, PairHash<BaseType, ExpType>> cache;
 
@@ -147,7 +160,7 @@ inline ResultType pow_cached_unordered_pair(BaseType base, ExpType exp) requires
 
 // Memoization with vector<vector<optional>> for integer types
 template <typename BaseType, typename ExpType>
-inline BaseType pow_cached_vector_optional(BaseType base, ExpType exp) requires std::is_integral_v<BaseType> && std::is_unsigned_v<ExpType> {
+inline BaseType pow_cached_vector_optional(BaseType base, ExpType exp) requires IsIntegralUnsigned<BaseType, ExpType> {
     if (base < 0) {
         return pow_hierarchical(base, exp);
     }
@@ -171,7 +184,7 @@ inline BaseType pow_cached_vector_optional(BaseType base, ExpType exp) requires 
 
 // Static array cache for small integer ranges
 template <typename BaseType, typename ExpType, size_t MAX_BASE = 16, size_t MAX_EXP = 16>
-inline BaseType pow_cached_static_array(BaseType base, ExpType exp) requires std::is_integral_v<BaseType> && std::is_unsigned_v<ExpType> {
+inline BaseType pow_cached_static_array(BaseType base, ExpType exp) requires IsIntegralUnsigned<BaseType, ExpType> {
     if (base >= 0 && static_cast<size_t>(base) < MAX_BASE && exp < MAX_EXP) {
         static BaseType cache[MAX_BASE][MAX_EXP] = {};
         static bool is_cached[MAX_BASE][MAX_EXP] = {};
@@ -190,20 +203,24 @@ inline BaseType pow_cached_static_array(BaseType base, ExpType exp) requires std
 }
 
 // C raw pow function wrapper
-template <typename BaseType>
-inline double pow_c_raw(BaseType base, double exp) requires std::is_arithmetic_v<BaseType> {
-    return pow(static_cast<double>(base), exp);
+template <typename BaseType, typename ExpType>
+inline auto pow_c_raw(BaseType base, ExpType exp) requires IsArithmeticFloating<BaseType, ExpType> {
+    if constexpr (std::is_same_v<ExpType, float>) {
+        return powf(static_cast<float>(base), exp);
+    } else {
+        return pow(static_cast<double>(base), static_cast<double>(exp));
+    }
 }
 
 // Cube root functions
 template <typename BaseType>
-inline double cbrt_wrapper(BaseType x) requires std::is_arithmetic_v<BaseType> {
+inline double cbrt_wrapper(BaseType x) requires IsArithmetic<BaseType> {
     return cbrt(static_cast<double>(x));
 }
 
 // pow(x, 2/3) = cbrt(x^2)
 template <typename BaseType>
-inline double pow_2_3_cbrt(BaseType x) requires std::is_arithmetic_v<BaseType> {
+inline double pow_2_3_cbrt(BaseType x) requires IsArithmetic<BaseType> {
     double x_squared = static_cast<double>(x) * static_cast<double>(x);
     return cbrt(x_squared);
 }
@@ -211,14 +228,14 @@ inline double pow_2_3_cbrt(BaseType x) requires std::is_arithmetic_v<BaseType> {
 // Exponential and logarithmic functions
 // pow(x, 2/3) = exp(2/3 * log(x))
 template <typename BaseType>
-inline double pow_2_3_exp_log(BaseType base) requires std::is_arithmetic_v<BaseType> {
+inline double pow_2_3_exp_log(BaseType base) requires IsArithmetic<BaseType> {
     constexpr double two_thirds = 2.0 / 3.0;
     return ::exp(two_thirds * ::log(static_cast<double>(base)));
 }
 
 // Binomial series expansion for pow(x, 2/3)
 template <typename BaseType>
-inline double pow_2_3_series(BaseType base) requires std::is_arithmetic_v<BaseType> {
+inline double pow_2_3_series(BaseType base) requires IsArithmetic<BaseType> {
     if (base == 0) return 0.0;
     if (base < 0) {
         return std::numeric_limits<double>::quiet_NaN();
