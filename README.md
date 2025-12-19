@@ -96,3 +96,110 @@ That's it – the tables above are usually all you need. For deeper numbers run 
 * **`cbrt`** – Computes `cbrt(x*x)`; avoids `exp`, but extra multiply cancels the saving on current CPUs.
 * **Eigen** – Calls Eigen's vectorised `pow` which shines on `float32` thanks to fast SIMD path.
 * **Series** – Binomial expansion to 7 terms; accurate but 2× slower – mostly a didactic baseline.
+
+---
+
+## Implementation Details
+
+### Integer Exponents
+
+#### `pow_hierarchical` (Divide & Conquer)
+
+Recursive approach that halves the exponent at each step:
+
+```cpp
+T pow_hierarchical(T base, U exp) {
+    if (exp == 0) return 1;
+    if (exp == 1) return base;
+    T half = pow_hierarchical(base * base, exp >> 1);
+    return (exp & 1) ? base * half : half;
+}
+```
+
+**Why it's fast:** The ternary compiles to a conditional move (no branch), and modern compilers fully inline small recursive functions. O(log n) multiplications.
+
+#### `pow_binary` (Iterative)
+
+Classic square-and-multiply loop:
+
+```cpp
+T pow_binary(T base, U exp) {
+    T result = 1;
+    while (exp > 0) {
+        if (exp & 1) result *= base;
+        base *= base;
+        exp >>= 1;
+    }
+    return result;
+}
+```
+
+**Trade-off:** Slightly slower than hierarchical due to loop overhead, but non-recursive.
+
+#### `pow_ultra_fast` (Hardcoded + Unrolled)
+
+Switch-case for common exponents (1–4, 8), then falls back to binary:
+
+```cpp
+switch (exp) {
+    case 2: return base * base;
+    case 3: return base * base * base;
+    case 4: { T sq = base * base; return sq * sq; }
+    // ...
+}
+```
+
+**Trade-off:** Fast for small exponents, but switch overhead hurts when exponents vary.
+
+### Fractional Exponents (base^(2/3))
+
+#### `pow_2_3_exp_log`
+
+Uses the identity x^a = exp(a · log(x)):
+
+```cpp
+double pow_2_3_exp_log(T base) {
+    return exp(0.666... * log(base));
+}
+```
+
+**Why it wins:** Modern FPUs pipeline `log`/`exp` extremely well. Single-pass, no branching.
+
+#### `pow_2_3_cbrt`
+
+Uses the identity x^(2/3) = ∛(x²):
+
+```cpp
+double pow_2_3_cbrt(T base) {
+    return cbrt(base * base);
+}
+```
+
+**Trade-off:** Avoids `log`, but the extra multiply + `cbrt` latency cancels gains on x86.
+
+#### `pow_2_3_series` (Binomial Expansion)
+
+Taylor series around the nearest perfect cube:
+
+```cpp
+// For x near a = n³, expand (1+z)^(2/3) where z = x/a - 1
+double n = round(cbrt(x));
+double z = x / (n*n*n) - 1;
+double sum = 1;
+for (int k = 1; k < 10; ++k)
+    sum += binomial_coeff(2/3, k) * z^k;
+return n² * sum;
+```
+
+**Trade-off:** Best precision (~1e-6), but 10 iterations make it 2× slower.
+
+### Memoization Strategies
+
+| Strategy | Lookup | Best when |
+|----------|--------|-----------|
+| `std::map<pair>` | O(log n) | Large exponents, sorted access |
+| `unordered_map<pair>` | O(1) avg | Random access, moderate reuse |
+| `vector<vector<optional>>` | O(1) | Small bounded ranges |
+| `static T[16][16]` | O(1) | Very small base/exp (≤15) |
+
+All caches fall back to `pow_hierarchical` on miss. Cache overhead only pays off when reuse rate ≥ 50%.
