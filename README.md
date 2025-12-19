@@ -203,3 +203,9 @@ return n² * sum;
 | `static T[16][16]` | O(1) | Very small base/exp (≤15) |
 
 All caches fall back to `pow_hierarchical` on miss. Cache overhead only pays off when reuse rate ≥ 50%.
+
+---
+
+## Context
+
+This project is part of a performance optimization effort for a **Method of Moments** solver that relies heavily on various exponential computations. Developed at **École Polytechnique** within the **CMAP / HPC@Maths** laboratory.
