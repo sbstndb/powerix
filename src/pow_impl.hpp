@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cmath>
+#include <cstdint>
 #include <vector>
 #include <map>
 #include <type_traits>
@@ -8,6 +9,10 @@
 #include <optional>
 #include <limits>
 #include <unordered_map>
+
+#ifdef __AVX2__
+#include <immintrin.h>
+#endif
 
 namespace powerix {
 
@@ -265,4 +270,150 @@ inline double pow_2_3_series(BaseType base) requires IsArithmetic<BaseType> {
     return n_squared * sum;
 }
 
-} // namespace powerix 
+// ============================================================
+// SIMD AVX2 implementations (guarded by __AVX2__)
+// ============================================================
+#ifdef __AVX2__
+
+// AVX2 pow: 4 doubles, uniform unsigned int exponent
+// Uses binary exponentiation with _mm256_mul_pd
+inline __m256d pow_avx2_d(__m256d bases, unsigned int n) {
+    if (n == 0) return _mm256_set1_pd(1.0);
+    if (n == 1) return bases;
+
+    __m256d result = _mm256_set1_pd(1.0);
+    __m256d current = bases;
+
+    while (n > 0) {
+        if (n & 1) {
+            result = _mm256_mul_pd(result, current);
+        }
+        current = _mm256_mul_pd(current, current);
+        n >>= 1;
+    }
+    return result;
+}
+
+// AVX2 pow: 8 floats, uniform unsigned int exponent
+// Uses binary exponentiation with _mm256_mul_ps
+inline __m256 pow_avx2_f(__m256 bases, unsigned int n) {
+    if (n == 0) return _mm256_set1_ps(1.0f);
+    if (n == 1) return bases;
+
+    __m256 result = _mm256_set1_ps(1.0f);
+    __m256 current = bases;
+
+    while (n > 0) {
+        if (n & 1) result = _mm256_mul_ps(result, current);
+        current = _mm256_mul_ps(current, current);
+        n >>= 1;
+    }
+    return result;
+}
+
+// AVX2 pow: 8 uint32s, uniform unsigned int exponent
+// Uses binary exponentiation with _mm256_mullo_epi32
+inline __m256i pow_avx2_i32(__m256i bases, unsigned int n) {
+    if (n == 0) return _mm256_set1_epi32(1);
+    if (n == 1) return bases;
+
+    __m256i result = _mm256_set1_epi32(1);
+    __m256i current = bases;
+
+    while (n > 0) {
+        if (n & 1) result = _mm256_mullo_epi32(result, current);
+        current = _mm256_mullo_epi32(current, current);
+        n >>= 1;
+    }
+    return result;
+}
+
+// Batch function: process an array of doubles with SIMD
+// Handles non-multiple-of-4 sizes with scalar tail
+inline void pow_avx2_batch(const double* __restrict__ in,
+                           double* __restrict__ out,
+                           size_t n,
+                           unsigned int exp) {
+    size_t i = 0;
+    for (; i + 3 < n; i += 4) {
+        __m256d bases = _mm256_loadu_pd(in + i);
+        __m256d res   = pow_avx2_d(bases, exp);
+        _mm256_storeu_pd(out + i, res);
+    }
+    for (; i < n; ++i) {
+        out[i] = pow_hierarchical(in[i], exp);
+    }
+}
+
+// Batch function: process an array of floats with SIMD
+// Handles non-multiple-of-8 sizes with scalar tail
+inline void pow_avx2_batch_f(const float* __restrict__ in,
+                             float* __restrict__ out,
+                             size_t n,
+                             unsigned int exp) {
+    size_t i = 0;
+    for (; i + 7 < n; i += 8) {
+        __m256 bases = _mm256_loadu_ps(in + i);
+        __m256 res   = pow_avx2_f(bases, exp);
+        _mm256_storeu_ps(out + i, res);
+    }
+    for (; i < n; ++i) {
+        out[i] = static_cast<float>(
+            pow_hierarchical(static_cast<float>(in[i]), exp));
+    }
+}
+
+// Batch function: process an array of uint32s with SIMD
+// Handles non-multiple-of-8 sizes with scalar tail
+inline void pow_avx2_batch_i32(const uint32_t* __restrict__ in,
+                               uint32_t* __restrict__ out,
+                               size_t n,
+                               unsigned int exp) {
+    size_t i = 0;
+    for (; i + 7 < n; i += 8) {
+        __m256i bases = _mm256_loadu_si256(
+            reinterpret_cast<const __m256i*>(in + i));
+        __m256i res   = pow_avx2_i32(bases, exp);
+        _mm256_storeu_si256(reinterpret_cast<__m256i*>(out + i), res);
+    }
+    for (; i < n; ++i) {
+        out[i] = pow_hierarchical(in[i], exp);
+    }
+}
+
+#endif // __AVX2__
+
+// ============================================================
+// Hand-written asm: branchless binary exponentiation (x86_64 only)
+// ============================================================
+#if defined(__x86_64__) && defined(__GNUC__)
+
+// Branchless binary exponentiation using cmov for uint64_t.
+// Uses only 4 registers: result, base, exp, temp.
+// No stack frame, no spills, no recursive fallback.
+inline uint64_t pow_asm_cmov(uint64_t base, uint64_t exp) {
+    uint64_t result;
+    asm volatile(
+        "mov $1, %%rax\n\t"          // result = 1
+        "test %%rsi, %%rsi\n\t"      // if exp == 0, skip
+        "jz 2f\n\t"
+        ".p2align 4\n\t"
+    "1:\n\t"
+        "mov %%rax, %%rcx\n\t"       // temp = result
+        "imul %%rdi, %%rcx\n\t"      // temp = result * base
+        "test $1, %%sil\n\t"         // test exp & 1
+        "cmovnz %%rcx, %%rax\n\t"    // if odd: result = temp
+        "imul %%rdi, %%rdi\n\t"      // base = base * base
+        "shr %%rsi\n\t"              // exp >>= 1
+        "jnz 1b\n\t"                 // loop while exp != 0
+    "2:\n\t"
+        : "=a"(result), "+D"(base), "+S"(exp)
+        :
+        : "rcx", "cc"
+    );
+    return result;
+}
+
+#endif // defined(__x86_64__) && defined(__GNUC__)
+
+} // namespace powerix

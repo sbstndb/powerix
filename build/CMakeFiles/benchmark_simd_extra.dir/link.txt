@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/benchmark_simd_extra.dir/link.d CMakeFiles/benchmark_simd_extra.dir/benchmark/benchmark_simd_extra.cpp.o -o benchmark_simd_extra  /home/sbstndbs/.local/lib/libbenchmark.a -lrt

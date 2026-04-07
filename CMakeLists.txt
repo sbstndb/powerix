@@ -17,6 +17,16 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(Eigen3)
 
+# Fetch Google Test
+FetchContent_Declare(
+    googletest
+    GIT_REPOSITORY https://github.com/google/googletest.git
+    GIT_TAG v1.14.0
+)
+FetchContent_MakeAvailable(googletest)
+
+enable_testing()
+
 # Detect available compilers
 find_program(GCC_COMPILER g++)
 find_program(CLANG_COMPILER clang++)
@@ -90,6 +100,37 @@ if(CLANG_COMPILER)
     create_fractional_benchmark_executable_with_compiler(benchmark_pow_fractional_aggressive_clang "-O3;-mtune=native;-march=native;-mavx2" "clang++")
     create_benchmark_executable_with_compiler(benchmark_pow_fast_clang "-Ofast;-mtune=native;-march=native;-mavx2;-ffast-math;-funroll-loops" "clang++")
     create_fractional_benchmark_executable_with_compiler(benchmark_pow_fractional_fast_clang "-Ofast;-mtune=native;-march=native;-mavx2;-ffast-math;-funroll-loops" "clang++")
+endif()
+
+# Function to create a custom benchmark executable from a specific source file
+function(create_custom_benchmark_executable name source_file optimization_flags)
+    add_executable(${name} ${source_file})
+    target_compile_features(${name} PRIVATE cxx_std_20)
+    target_compile_options(${name} PRIVATE ${optimization_flags})
+    target_link_libraries(${name} PRIVATE benchmark::benchmark)
+endfunction()
+
+# Unit test executable
+add_executable(test_pow test/test_pow.cpp)
+target_compile_features(test_pow PRIVATE cxx_std_20)
+target_compile_options(test_pow PRIVATE "-O2;-march=native;-mavx2")
+target_link_libraries(test_pow PRIVATE GTest::gtest_main)
+add_test(NAME test_pow COMMAND test_pow)
+
+# SIMD and ASM benchmark executables
+if(GCC_COMPILER)
+    create_custom_benchmark_executable(benchmark_simd
+        benchmark/benchmark_simd.cpp
+        "-Ofast;-mtune=native;-march=native;-mavx2;-ffast-math;-funroll-loops")
+    create_custom_benchmark_executable(benchmark_simd_extra
+        benchmark/benchmark_simd_extra.cpp
+        "-Ofast;-mtune=native;-march=native;-mavx2;-ffast-math;-funroll-loops")
+    create_custom_benchmark_executable(benchmark_asm
+        benchmark/benchmark_asm.cpp
+        "-Ofast;-mtune=native;-march=native;-mavx2;-ffast-math;-funroll-loops")
+    create_custom_benchmark_executable(benchmark_asm_double
+        benchmark/benchmark_asm_double.cpp
+        "-Ofast;-mtune=native;-march=native;-mavx2;-ffast-math;-funroll-loops")
 endif()
 
 # Print information about available compilers

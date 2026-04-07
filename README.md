@@ -31,21 +31,102 @@ Benchmarks now include **accuracy measurements** computed outside the performanc
 5. Memoized variants help only when repeated `(base,exp)` pairs are common; they lose on raw throughput.
 6. **All custom implementations maintain excellent precision** with errors ≤ 1 ULP for integer exponents and ≤ 2 ULP for fractional.
 
+## SIMD Batch Exponentiation (AVX2)
+
+The library includes AVX2 SIMD implementations for batch exponentiation with a uniform integer exponent across multiple lanes. These are available in `pow_impl.hpp` and automatically enabled when compiled with `-mavx2`.
+
+| Function | Type | Lanes | Intrinsic |
+|----------|------|-------|-----------|
+| `pow_avx2_d` | 4 doubles | 4 | `_mm256_mul_pd` |
+| `pow_avx2_f` | 8 floats | 8 | `_mm256_mul_ps` |
+| `pow_avx2_i32` | 8 uint32s | 8 | `_mm256_mullo_epi32` |
+
+Batch convenience functions (`pow_avx2_batch`, `pow_avx2_batch_f`, `pow_avx2_batch_i32`) process arrays of any size, using SIMD for the main body and scalar fallback for the tail.
+
+### SIMD Benchmark Results (1024 elements, `-Ofast -march=native`)
+
+**Double precision (4 lanes):**
+
+| Exponent | `std::pow` | `pow_hierarchical` (scalar) | `pow_avx2_batch` (SIMD) |
+|----------|------------|----------------------------|-------------------------|
+| 3  | ~5970 ns | ~327 ns | ~425 ns |
+| 7  | ~6830 ns | ~887 ns | ~700 ns |
+| 13 | ~5420 ns | ~1240 ns | ~960 ns |
+
+**Accuracy (max relative error vs `std::pow`):**
+
+| Exponent | SIMD MaxRelErr | Hierarchical MaxRelErr |
+|----------|---------------|----------------------|
+| 3  | 2.21e-16 | 2.21e-16 |
+| 7  | 4.58e-16 | 4.57e-16 |
+| 13 | 9.74e-16 | 8.72e-16 |
+
+**Note:** SIMD excels at larger exponents where the per-element multiply cost dominates. For small exponents (2-3), the scalar hierarchical version may be faster due to its hardcoded paths. All SIMD implementations are guarded by `#ifdef __AVX2__` and compile cleanly on non-AVX2 machines.
+
+**Note:** uint64 SIMD on AVX2 is not supported -- there is no `_mm256_mullo_epi64` intrinsic; emulation via 4x scalar or cross-lane shuffles negates the benefit.
+
+## Hand-Written Assembly (x86_64)
+
+The library includes a branchless `pow_asm_cmov` for `uint64_t` base and exponent, using inline assembly with the `cmov` instruction to eliminate the "if (exp & 1)" branch in binary exponentiation.
+
+### Why cmov?
+
+GCC's output for `pow_hierarchical` uses branches (`je`/`jne`) for odd-exponent checks. For arbitrary exponents, the `exp & 1` pattern has a ~50% mispredict rate. The cmov version eliminates this branch entirely:
+
+```asm
+.loop:
+    mov  rax, rcx      ; temp = result
+    imul rcx, rdi      ; temp = result * base
+    test sil, 1        ; test exp & 1
+    cmovnz rax, rcx    ; if odd: result = temp (branchless)
+    imul rdi, rdi      ; base *= base
+    shr  rsi           ; exp >>= 1
+    jnz  .loop
+```
+
+Key properties:
+- **4 registers only** (result, base, exp, temp) -- no stack frame, no register spills
+- **Branchless inner loop** -- only the loop-exit branch (`jnz`) remains, which is well-predicted
+- **No recursive fallback** -- handles all exponent sizes
+
+The asm implementation is guarded by `#if defined(__x86_64__) && defined(__GNUC__)` and compiles only on x86_64 with GCC-compatible compilers.
+
 ## Quick Start
 
 ```bash
 # one-shot build & run
 mkdir -p build && cd build
-cmake .. && make -j
+cmake .. -DCMAKE_PREFIX_PATH=$HOME/.local && make -j
+
+# run unit tests
+ctest --output-on-failure
 
 # integer-exponent suite (~1 min)
-./benchmark_pow_fast
+./benchmark_pow_fast_gcc
+
+# SIMD batch benchmark
+./benchmark_simd --benchmark_min_time=0.1s
+
+# SIMD float + uint32 benchmark
+./benchmark_simd_extra --benchmark_min_time=0.1s
+
+# ASM branchless benchmark (uint64)
+./benchmark_asm --benchmark_min_time=0.1s
+
+# ASM double-base benchmark
+./benchmark_asm_double --benchmark_min_time=0.1s
 
 # fractional 2/3 suite (~15 s)
-./benchmark_pow_fractional_fast
+./benchmark_pow_fractional_fast_gcc
 ```
 
-That's it – the tables above are usually all you need. For deeper numbers run the benchmarks yourself on your target CPU. 
+### Build Notes
+
+- **AVX2 is auto-detected:** The SIMD implementations are guarded by `#ifdef __AVX2__` and automatically enabled when you compile with `-mavx2` or `-march=native` on a machine that supports AVX2.
+- **Tests:** Unit tests use Google Test (fetched automatically via CMake FetchContent). Run with `ctest` or `./test_pow`.
+- **Non-x86 platforms:** The library compiles cleanly without SIMD or ASM features -- only the scalar implementations are available.
+
+For deeper numbers run the benchmarks yourself on your target CPU.
 
 ---
 

@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/benchmark_pow_aggressive_gcc.dir/link.d CMakeFiles/benchmark_pow_aggressive_gcc.dir/benchmark/benchmark_pow.cpp.o -o benchmark_pow_aggressive_gcc  /home/sbstndbs/.local/lib/libbenchmark.a -lrt

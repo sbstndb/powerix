@@ -1,0 +1,1 @@
+/usr/bin/gfortran -Wl,--dependency-file=CMakeFiles/zblat2.dir/link.d -O3 CMakeFiles/zblat2.dir/zblat2.f.o -o zblat2  -Wl,-rpath,/tmp/powerix/build/_deps/eigen3-build/blas ../libeigen_blas.so

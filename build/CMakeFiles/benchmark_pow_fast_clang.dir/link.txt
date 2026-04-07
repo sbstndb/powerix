@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/benchmark_pow_fast_clang.dir/link.d CMakeFiles/benchmark_pow_fast_clang.dir/benchmark/benchmark_pow.cpp.o -o benchmark_pow_fast_clang  /home/sbstndbs/.local/lib/libbenchmark.a -lrt
