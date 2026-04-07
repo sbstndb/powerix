@@ -1,1 +1,0 @@
-/usr/bin/c++ -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/benchmark_pow_fractional_aggressive_clang.dir/link.d CMakeFiles/benchmark_pow_fractional_aggressive_clang.dir/benchmark/benchmark_pow_fractional.cpp.o -o benchmark_pow_fractional_aggressive_clang  /home/sbstndbs/.local/lib/libbenchmark.a -lrt

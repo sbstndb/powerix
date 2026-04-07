@@ -1,1 +1,0 @@
-/usr/bin/c++ -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/benchmark_asm_double.dir/link.d CMakeFiles/benchmark_asm_double.dir/benchmark/benchmark_asm_double.cpp.o -o benchmark_asm_double  /home/sbstndbs/.local/lib/libbenchmark.a -lrt
