@@ -27,38 +27,69 @@ FetchContent_MakeAvailable(googletest)
 
 enable_testing()
 
-# Detect available compilers
-find_program(GCC_COMPILER g++)
-find_program(CLANG_COMPILER clang++)
+# ---------------------------------------------------------------------------
+# Per-target compiler selection
+#
+# CMake has no CXX_COMPILER target property. Setting one is a no-op, so every
+# target would still use CMAKE_CXX_COMPILER. Compile and link rules are instead
+# prefixed with a launcher that drops CMake's compiler and execs the requested
+# one (CXX_COMPILER_LAUNCHER / CXX_LINKER_LAUNCHER; RULE_LAUNCH_LINK before 3.21).
+# ---------------------------------------------------------------------------
+set(POWERIX_COMPILER_WRAPPER "${CMAKE_CURRENT_SOURCE_DIR}/cmake/override_cxx_compiler.sh")
+if(NOT EXISTS "${POWERIX_COMPILER_WRAPPER}")
+    message(FATAL_ERROR "Missing compiler wrapper: ${POWERIX_COMPILER_WRAPPER}")
+endif()
 
-# Function to create benchmark executable with specific optimization flags
-function(create_benchmark_executable name optimization_flags)
-    add_executable(${name} 
-        benchmark/benchmark_pow.cpp
-    )
-    target_compile_features(${name} PRIVATE cxx_std_20)
-    target_compile_options(${name} PRIVATE ${optimization_flags})
-    target_link_libraries(${name} PRIVATE benchmark::benchmark Eigen3::Eigen)
+function(powerix_set_cxx_compiler target compiler)
+    # Invoke via /bin/sh so the wrapper does not need a git executable bit.
+    set_property(TARGET ${target} PROPERTY CXX_COMPILER_LAUNCHER
+        "/bin/sh" "${POWERIX_COMPILER_WRAPPER}" "${compiler}")
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.21")
+        set_property(TARGET ${target} PROPERTY CXX_LINKER_LAUNCHER
+            "/bin/sh" "${POWERIX_COMPILER_WRAPPER}" "${compiler}")
+    else()
+        set_property(TARGET ${target} PROPERTY RULE_LAUNCH_LINK
+            "/bin/sh" "${POWERIX_COMPILER_WRAPPER}" "${compiler}")
+    endif()
 endfunction()
 
-# Function to create fractional benchmark executable with specific optimization flags
-function(create_fractional_benchmark_executable name optimization_flags)
-    add_executable(${name} 
-        benchmark/benchmark_pow_fractional.cpp
-    )
-    target_compile_features(${name} PRIVATE cxx_std_20)
-    target_compile_options(${name} PRIVATE ${optimization_flags})
-    target_link_libraries(${name} PRIVATE benchmark::benchmark Eigen3::Eigen)
-endfunction()
+# Discover compilers unless the caller already set them (a path or NOTFOUND).
+# Prefer the configured compiler when it already is the requested family so
+# `cmake -DCMAKE_CXX_COMPILER=g++-13` builds *_gcc targets with that binary.
+if(NOT DEFINED GCC_COMPILER)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        set(GCC_COMPILER "${CMAKE_CXX_COMPILER}")
+    else()
+        find_program(GCC_COMPILER g++)
+    endif()
+endif()
+
+if(NOT DEFINED CLANG_COMPILER)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        set(CLANG_COMPILER "${CMAKE_CXX_COMPILER}")
+    else()
+        find_program(CLANG_COMPILER clang++)
+    endif()
+endif()
+
+if(GCC_COMPILER)
+    message(STATUS "GCC found: ${GCC_COMPILER}; *_gcc targets will compile and link with it")
+else()
+    message(WARNING "g++ not found; skipping *_gcc benchmark targets")
+endif()
+
+if(CLANG_COMPILER)
+    message(STATUS "Clang found: ${CLANG_COMPILER}; *_clang targets will compile and link with it")
+else()
+    message(WARNING "clang++ not found; skipping *_clang benchmark targets")
+endif()
 
 # Function to create benchmark executable with specific compiler and optimization flags
 function(create_benchmark_executable_with_compiler name optimization_flags compiler)
-    add_executable(${name} 
+    add_executable(${name}
         benchmark/benchmark_pow.cpp
     )
-    set_target_properties(${name} PROPERTIES
-        CXX_COMPILER ${compiler}
-    )
+    powerix_set_cxx_compiler(${name} "${compiler}")
     target_compile_features(${name} PRIVATE cxx_std_20)
     target_compile_options(${name} PRIVATE ${optimization_flags})
     target_link_libraries(${name} PRIVATE benchmark::benchmark Eigen3::Eigen)
@@ -66,12 +97,10 @@ endfunction()
 
 # Function to create fractional benchmark executable with specific compiler and optimization flags
 function(create_fractional_benchmark_executable_with_compiler name optimization_flags compiler)
-    add_executable(${name} 
+    add_executable(${name}
         benchmark/benchmark_pow_fractional.cpp
     )
-    set_target_properties(${name} PROPERTIES
-        CXX_COMPILER ${compiler}
-    )
+    powerix_set_cxx_compiler(${name} "${compiler}")
     target_compile_features(${name} PRIVATE cxx_std_20)
     target_compile_options(${name} PRIVATE ${optimization_flags})
     target_link_libraries(${name} PRIVATE benchmark::benchmark Eigen3::Eigen)
@@ -80,26 +109,26 @@ endfunction()
 # Create GCC versions if GCC is available
 if(GCC_COMPILER)
     # Create standard optimization binary (-O2)
-    create_benchmark_executable(benchmark_pow_standard_gcc "-O2")
-    create_fractional_benchmark_executable(benchmark_pow_fractional_standard_gcc "-O2")
+    create_benchmark_executable_with_compiler(benchmark_pow_standard_gcc "-O2" "${GCC_COMPILER}")
+    create_fractional_benchmark_executable_with_compiler(benchmark_pow_fractional_standard_gcc "-O2" "${GCC_COMPILER}")
 
     # Create aggressive optimization binary (-O3 -mtune=native -march=native -mavx2)
-    create_benchmark_executable(benchmark_pow_aggressive_gcc "-O3;-mtune=native;-march=native;-mavx2")
-    create_fractional_benchmark_executable(benchmark_pow_fractional_aggressive_gcc "-O3;-mtune=native;-march=native;-mavx2")
+    create_benchmark_executable_with_compiler(benchmark_pow_aggressive_gcc "-O3;-mtune=native;-march=native;-mavx2" "${GCC_COMPILER}")
+    create_fractional_benchmark_executable_with_compiler(benchmark_pow_fractional_aggressive_gcc "-O3;-mtune=native;-march=native;-mavx2" "${GCC_COMPILER}")
 
     # Create ultra-fast optimization binary (-Ofast -mtune=native -march=native -mavx2 -ffast-math -funroll-loops)
-    create_benchmark_executable(benchmark_pow_fast_gcc "-Ofast;-mtune=native;-march=native;-mavx2;-ffast-math;-funroll-loops")
-    create_fractional_benchmark_executable(benchmark_pow_fractional_fast_gcc "-Ofast;-mtune=native;-march=native;-mavx2;-ffast-math;-funroll-loops")
+    create_benchmark_executable_with_compiler(benchmark_pow_fast_gcc "-Ofast;-mtune=native;-march=native;-mavx2;-ffast-math;-funroll-loops" "${GCC_COMPILER}")
+    create_fractional_benchmark_executable_with_compiler(benchmark_pow_fractional_fast_gcc "-Ofast;-mtune=native;-march=native;-mavx2;-ffast-math;-funroll-loops" "${GCC_COMPILER}")
 endif()
 
 # Create Clang versions if Clang is available
 if(CLANG_COMPILER)
-    create_benchmark_executable_with_compiler(benchmark_pow_standard_clang "-O2" "clang++")
-    create_fractional_benchmark_executable_with_compiler(benchmark_pow_fractional_standard_clang "-O2" "clang++")
-    create_benchmark_executable_with_compiler(benchmark_pow_aggressive_clang "-O3;-mtune=native;-march=native;-mavx2" "clang++")
-    create_fractional_benchmark_executable_with_compiler(benchmark_pow_fractional_aggressive_clang "-O3;-mtune=native;-march=native;-mavx2" "clang++")
-    create_benchmark_executable_with_compiler(benchmark_pow_fast_clang "-Ofast;-mtune=native;-march=native;-mavx2;-ffast-math;-funroll-loops" "clang++")
-    create_fractional_benchmark_executable_with_compiler(benchmark_pow_fractional_fast_clang "-Ofast;-mtune=native;-march=native;-mavx2;-ffast-math;-funroll-loops" "clang++")
+    create_benchmark_executable_with_compiler(benchmark_pow_standard_clang "-O2" "${CLANG_COMPILER}")
+    create_fractional_benchmark_executable_with_compiler(benchmark_pow_fractional_standard_clang "-O2" "${CLANG_COMPILER}")
+    create_benchmark_executable_with_compiler(benchmark_pow_aggressive_clang "-O3;-mtune=native;-march=native;-mavx2" "${CLANG_COMPILER}")
+    create_fractional_benchmark_executable_with_compiler(benchmark_pow_fractional_aggressive_clang "-O3;-mtune=native;-march=native;-mavx2" "${CLANG_COMPILER}")
+    create_benchmark_executable_with_compiler(benchmark_pow_fast_clang "-Ofast;-mtune=native;-march=native;-mavx2;-ffast-math;-funroll-loops" "${CLANG_COMPILER}")
+    create_fractional_benchmark_executable_with_compiler(benchmark_pow_fractional_fast_clang "-Ofast;-mtune=native;-march=native;-mavx2;-ffast-math;-funroll-loops" "${CLANG_COMPILER}")
 endif()
 
 # Function to create a custom benchmark executable from a specific source file
@@ -132,16 +161,3 @@ if(GCC_COMPILER)
         benchmark/benchmark_asm_double.cpp
         "-Ofast;-mtune=native;-march=native;-mavx2;-ffast-math;-funroll-loops")
 endif()
-
-# Print information about available compilers
-if(GCC_COMPILER)
-    message(STATUS "GCC found: ${GCC_COMPILER}")
-else()
-    message(STATUS "GCC not found")
-endif()
-
-if(CLANG_COMPILER)
-    message(STATUS "Clang found: ${CLANG_COMPILER}")
-else()
-    message(STATUS "Clang not found")
-endif() 
