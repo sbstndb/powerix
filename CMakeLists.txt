@@ -53,18 +53,23 @@ function(powerix_set_cxx_compiler target compiler)
     endif()
 endfunction()
 
+# Discover compilers unless the caller already set them (a path or NOTFOUND).
 # Prefer the configured compiler when it already is the requested family so
 # `cmake -DCMAKE_CXX_COMPILER=g++-13` builds *_gcc targets with that binary.
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    set(GCC_COMPILER "${CMAKE_CXX_COMPILER}")
-else()
-    find_program(GCC_COMPILER g++)
+if(NOT DEFINED GCC_COMPILER)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        set(GCC_COMPILER "${CMAKE_CXX_COMPILER}")
+    else()
+        find_program(GCC_COMPILER g++)
+    endif()
 endif()
 
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    set(CLANG_COMPILER "${CMAKE_CXX_COMPILER}")
-else()
-    find_program(CLANG_COMPILER clang++)
+if(NOT DEFINED CLANG_COMPILER)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        set(CLANG_COMPILER "${CMAKE_CXX_COMPILER}")
+    else()
+        find_program(CLANG_COMPILER clang++)
+    endif()
 endif()
 
 if(GCC_COMPILER)
