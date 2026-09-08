@@ -1,5 +1,7 @@
 # Powerix ‑ Concise Benchmark Report
 
+[![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://app.codspeed.io/sbstndb/powerix?utm_source=badge)
+
 This repository measures **power-function performance** on C++17 using several hand-tuned kernels.
 Tests were compiled with `-Ofast -march=native` and executed on an Intel 22-thread 4.7 GHz machine.
 
@@ -96,7 +98,7 @@ The asm implementation is guarded by `#if defined(__x86_64__) && defined(__GNUC_
 ```bash
 # one-shot build & run
 mkdir -p build && cd build
-cmake .. -DCMAKE_PREFIX_PATH=$HOME/.local && make -j
+cmake .. && make -j
 
 # run unit tests
 ctest --output-on-failure
@@ -123,10 +125,39 @@ ctest --output-on-failure
 ### Build Notes
 
 - **AVX2 is auto-detected:** The SIMD implementations are guarded by `#ifdef __AVX2__` and automatically enabled when you compile with `-mavx2` or `-march=native` on a machine that supports AVX2.
-- **Tests:** Unit tests use Google Test (fetched automatically via CMake FetchContent). Run with `ctest` or `./test_pow`.
+- **Dependencies:** Google Benchmark, Eigen and Google Test are fetched automatically via CMake FetchContent -- nothing has to be installed system-wide.
+- **Tests:** Unit tests use Google Test. Run with `ctest` or `./test_pow`.
 - **Non-x86 platforms:** The library compiles cleanly without SIMD or ASM features -- only the scalar implementations are available.
 
 For deeper numbers run the benchmarks yourself on your target CPU.
+
+---
+
+## Continuous Performance Measurement (CodSpeed)
+
+Every push to `main` and every pull request runs the whole benchmark suite on
+[CodSpeed](https://app.codspeed.io/sbstndb/powerix) with the CPU simulation
+instrument, so performance changes on the kernels are reported directly on the
+pull request.
+
+The benchmark sources are unchanged: Google Benchmark is pulled from
+[CodSpeed's compatibility fork](https://github.com/CodSpeedHQ/codspeed-cpp),
+which is a drop-in replacement for the upstream library. Dedicated
+`codspeed_*` targets build one executable per benchmark file with a fixed
+instruction set (`-O3 -mavx2` instead of `-march=native`) so the measurements
+stay reproducible across machines while still exercising the AVX2 kernels.
+
+```bash
+# configure with the CodSpeed instrumentation enabled
+cmake -S . -B build -DCODSPEED_MODE=simulation -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build build --target codspeed_benchmarks -j
+
+# run a single suite locally (needs the CodSpeed CLI: https://codspeed.io/docs/cli)
+codspeed run --mode simulation -- ./build/codspeed_benchmark_simd
+```
+
+Outside of a CodSpeed environment the executables behave like ordinary Google
+Benchmark binaries.
 
 ---
 

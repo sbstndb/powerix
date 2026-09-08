@@ -5,15 +5,33 @@ project(powerix VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Find Google Benchmark
-find_package(benchmark REQUIRED)
+# Build with optimizations and debug symbols by default so that profiling
+# reports (CodSpeed flame graphs) point back to readable source locations
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE RelWithDebInfo)
+endif()
+
+include(FetchContent)
+
+# Fetch Google Benchmark through CodSpeed's compatibility fork: it is a drop-in
+# replacement for the upstream library and additionally supports being measured
+# by CodSpeed when configured with -DCODSPEED_MODE=<simulation|walltime|memory>
+set(BENCHMARK_ENABLE_TESTING OFF)
+FetchContent_Declare(
+    google_benchmark
+    GIT_REPOSITORY https://github.com/CodSpeedHQ/codspeed-cpp.git
+    SOURCE_SUBDIR google_benchmark
+    GIT_TAG v2.4.0
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(google_benchmark)
 
 # Fetch Eigen library
-include(FetchContent)
 FetchContent_Declare(
     Eigen3
     GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
     GIT_TAG 3.4.0
+    GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(Eigen3)
 
@@ -22,6 +40,7 @@ FetchContent_Declare(
     googletest
     GIT_REPOSITORY https://github.com/google/googletest.git
     GIT_TAG v1.14.0
+    GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(googletest)
 
@@ -132,6 +151,37 @@ if(GCC_COMPILER)
         benchmark/benchmark_asm_double.cpp
         "-Ofast;-mtune=native;-march=native;-mavx2;-ffast-math;-funroll-loops")
 endif()
+
+# ---------------------------------------------------------------------------
+# CodSpeed benchmark targets
+#
+# One executable per benchmark source file, so that every benchmark is reported
+# once with a unique name. They are compiled with a fixed instruction set
+# (-mavx2) instead of -march=native: this keeps the AVX2 kernels enabled while
+# making the measurements reproducible across machines and CI runners.
+# ---------------------------------------------------------------------------
+set(CODSPEED_BENCHMARK_FLAGS "-O3;-mavx2;-funroll-loops")
+
+set(CODSPEED_BENCHMARK_SOURCES
+    benchmark_pow
+    benchmark_pow_fractional
+    benchmark_simd
+    benchmark_simd_extra
+    benchmark_asm
+    benchmark_asm_double
+)
+
+set(CODSPEED_BENCHMARK_TARGETS "")
+foreach(bench IN LISTS CODSPEED_BENCHMARK_SOURCES)
+    add_executable(codspeed_${bench} benchmark/${bench}.cpp)
+    target_compile_features(codspeed_${bench} PRIVATE cxx_std_20)
+    target_compile_options(codspeed_${bench} PRIVATE ${CODSPEED_BENCHMARK_FLAGS})
+    target_link_libraries(codspeed_${bench} PRIVATE benchmark::benchmark Eigen3::Eigen)
+    list(APPEND CODSPEED_BENCHMARK_TARGETS codspeed_${bench})
+endforeach()
+
+# Convenience target to build every CodSpeed benchmark executable at once
+add_custom_target(codspeed_benchmarks DEPENDS ${CODSPEED_BENCHMARK_TARGETS})
 
 # Print information about available compilers
 if(GCC_COMPILER)
